@@ -39,8 +39,8 @@
   let zRange = $state<[number, number] | null>(null);
   // Messen: Punkte in Weltkoordinaten
   let measure = $state<number[][] | null>(null);
-  // Auswahlmodus: #/karte?pick=bauplatz — ein Tippen setzt den Bauplatz des Rechners und springt zurück
-  let pickMode = $state<string | null>(new URLSearchParams(location.hash.split('?')[1] || '').get('pick'));
+  // Auswahlmodus: #/map?pick=site — ein Tippen setzt den Bauplatz des Rechners und springt zurück
+  let pickMode = $state<string | null>($route.q.get('pick'));
   let scaleTxt = $state(''), scaleW = $state(80);
   let isMobile = $state(matchMedia('(max-width: 760px)').matches);
   matchMedia('(max-width: 760px)').addEventListener('change', e => (isMobile = e.matches));
@@ -252,14 +252,14 @@
       rememberView(c.x, c.y, V.k);
       // Inzwischen auf eine andere Seite gewechselt? Dann die Adresse nicht zurück auf die Karte biegen.
       // location.hash statt $route: der Router erfährt vom Wechsel erst mit dem hashchange-Ereignis, danach wäre es zu spät
-      if (!/^#\/karte(\?|$)/.test(location.hash)) return;
-      replaceQuery('karte', { x: String(Math.round(c.x)), y: String(Math.round(c.y)), z: V!.k.toFixed(3), ...(sel ? { sel: sel.key } : {}),
-        ...(flowItem ? { ware: flowItem } : {}), ...(pickMode ? { pick: pickMode } : {}) });
+      if (!/^#\/(map|karte)(\?|$)/.test(location.hash)) return;
+      replaceQuery('map', { x: String(Math.round(c.x)), y: String(Math.round(c.y)), z: V!.k.toFixed(3), ...(sel ? { sel: sel.key } : {}),
+        ...(flowItem ? { item: flowItem } : {}), ...(pickMode ? { pick: pickMode } : {}) });
     }, 300);
   }
   function fromRoute() {
     const r = $route;
-    if (!V || r.page !== 'karte') return;
+    if (!V || r.page !== 'map') return;
     if (r.q.has('x')) {
       V.k = parseFloat(r.q.get('z') || '1');
       V.dx = V.w / 2 - V.k * +r.q.get('x')!; V.dy = V.h / 2 - V.k * +r.q.get('y')!; V.invalidate();
@@ -267,7 +267,7 @@
     const s = r.q.get('sel');
     if (s) { const o = V.objs.find(x => x.key === s); if (o) select(o, !r.q.has('x')); }
     pickMode = r.q.get('pick');
-    const w = r.q.get('ware');
+    const w = r.q.get('item');
     if (w !== null && w !== flowItem) { flowItem = w; showFlow = true; if (!r.q.has('x')) setTimeout(flowFit, 300); }
   }
   let routeReady = false;
@@ -427,7 +427,7 @@
         } else if (pickMode) {                               // Bauplatz für den Rechner wählen
           const site = { x: Math.round(V!.wx(p.x)), y: Math.round(V!.wy(p.y)) };
           localStorage.setItem('fgmap.site', JSON.stringify(site));
-          pickMode = null; location.hash = '#/rechner';
+          pickMode = null; location.hash = '#/planner';
         } else if (draw) {                                   // Zeichenmodus: Punkte setzen
           draw.pts = [...draw.pts, [Math.round(V!.wx(p.x)), Math.round(V!.wy(p.y))]];
           if (draw.shape === 'point') finishDraw();
@@ -462,7 +462,7 @@
       ingestAll();
       const m = $stations.map;
       if (!V!.img) V!.setImage('/map.jpg', { x: m.west / 100, y: m.north / 100, w: (m.east - m.west) / 100, h: (m.south - m.north) / 100 });
-      if (!kiosk && ($route.q.has('x') || $route.q.has('ware') || $route.q.has('sel') || $route.q.has('pick'))) { if (!$route.q.has('x')) fitFactory(); fromRoute(); }
+      if (!kiosk && ($route.q.has('x') || $route.q.has('item') || $route.q.has('sel') || $route.q.has('pick'))) { if (!$route.q.has('x')) fitFactory(); fromRoute(); }
       else if ($prefs.lastView && !kiosk) {           // eigene Startansicht: dort weiter, wo man war
         const lv = $prefs.lastView; V!.k = lv.z; V!.dx = V!.w / 2 - lv.z * lv.x; V!.dy = V!.h / 2 - lv.z * lv.y; V!.invalidate();
       } else fitFactory();
@@ -603,7 +603,7 @@
     {/if}
     {#if pickMode && !kiosk}
       <div class="flowbar panel pick">Tippe auf die Stelle, an der gebaut werden soll.
-        <a class="lk" href="#/rechner">Abbrechen</a></div>
+        <a class="lk" href="#/planner">Abbrechen</a></div>
     {/if}
     {#if (showFlow || flowItem) && !kiosk}
       <div class="flowbar panel">

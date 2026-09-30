@@ -22,7 +22,7 @@
   function open(e: any) {
     if (e.x === null) return;
     const sel = e.ref?.startsWith('player:') ? e.ref : '';
-    go('karte', { x: Math.round(e.x), y: Math.round(e.y), z: 1.6, ...(sel ? { sel } : {}) });
+    go('map', { x: Math.round(e.x), y: Math.round(e.y), z: 1.6, ...(sel ? { sel } : {}) });
   }
 </script>
 

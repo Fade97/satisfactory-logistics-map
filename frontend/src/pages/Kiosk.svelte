@@ -1,6 +1,6 @@
 <script lang="ts">
   // Kiosk für einen Nebenbildschirm: Karte (folgt einem Spieler) + Feed + Kennzahlen, optional rotierend.
-  // #/kiosk?folge=<Spieler>&rotate=30
+  // #/kiosk?follow=<Spieler>&rotate=30
   import { onMount, onDestroy } from 'svelte';
   import { factory, live, status } from '../lib/api';
   import { route } from '../lib/router';
@@ -14,14 +14,14 @@
 
   const q = $route.q;
   const rotate = +(q.get('rotate') || 0);
-  const pages = ['karte', 'produktion', 'strom', 'logistik'];
+  const pages = ['map', 'production', 'power', 'logistics'];
   let idx = $state(0);
   let t: number;
   onMount(() => { if (rotate) t = window.setInterval(() => (idx = (idx + 1) % pages.length), rotate * 1000); });
   onDestroy(() => clearInterval(t));
 
-  // Fester Spieler aus ?folge=, sonst der erste, der online ist (offline wird nicht verfolgt — MapPage pausiert dann)
-  const who = $derived(q.get('folge') || ($live?.players.find(p => p.online === true)?.name ?? ''));
+  // Fester Spieler aus ?follow=, sonst der erste, der online ist (offline wird nicht verfolgt — MapPage pausiert dann)
+  const who = $derived(q.get('follow') || ($live?.players.find(p => p.online === true)?.name ?? ''));
   const f = $derived($factory);
   const power = $derived((f?.circuits || []).reduce((a, c) => ({ use: a.use + c.use, cap: a.cap + c.cap }), { use: 0, cap: 0 }));
   const stalled = $derived((f?.machines || []).filter(m => m.state === 'steht' && m.block !== 'voll').length);
@@ -34,9 +34,9 @@
 
 <div class="kiosk">
   <div class="main">
-    {#if pages[idx] === 'karte'}{#key who}<MapPage kiosk followKey={who ? 'player:' + who : ''} />{/key}
-    {:else if pages[idx] === 'produktion'}<Production />
-    {:else if pages[idx] === 'strom'}<Power />
+    {#if pages[idx] === 'map'}{#key who}<MapPage kiosk followKey={who ? 'player:' + who : ''} />{/key}
+    {:else if pages[idx] === 'production'}<Production />
+    {:else if pages[idx] === 'power'}<Power />
     {:else}<Logistics />{/if}
   </div>
   <aside>
@@ -55,7 +55,7 @@
         {#each deficit as d}<div class="dr"><span>{$tn(d.item)}</span><span class="num" style="color:{C.bad}">{fmtNum(d.net)}/min</span></div>{/each}</div>
     {/if}
     <div class="feed"><h3>Ereignisse</h3><EventFeed compact /></div>
-    <a class="exit" href="#/karte">Kiosk verlassen</a>
+    <a class="exit" href="#/map">Kiosk verlassen</a>
   </aside>
 </div>
 

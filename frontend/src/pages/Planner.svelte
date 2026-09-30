@@ -261,7 +261,7 @@
       <div class="panel card">
         <h2>Freie Knoten</h2>
         <p class="muted small">{site ? 'Sortiert nach Reinheit und Entfernung zum gewählten Bauplatz.' : 'Sortiert nach Reinheit und Entfernung zur größten Fabrik.'}
-          Bauplatz: <a class="lk inl" href="#/karte?pick=bauplatz{site ? '&x=' + site.x + '&y=' + site.y + '&z=1.2' : ''}">{site ? site.x + ' / ' + site.y + ' m — auf der Karte ändern' : 'auf der Karte wählen'}</a>
+          Bauplatz: <a class="lk inl" href="#/map?pick=site{site ? '&x=' + site.x + '&y=' + site.y + '&z=1.2' : ''}">{site ? site.x + ' / ' + site.y + ' m — auf der Karte ändern' : 'auf der Karte wählen'}</a>
           {#if site}<button class="lk inl" onclick={() => { site = null; localStorage.removeItem('fgmap.site'); }}>zurücksetzen</button>{/if}</p>
         {#each nodeHints as h}
           <h3>{$tn(h.item)} · {fmtNum(h.rate)}/min</h3>

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { start, status, live, online } from './lib/api';
-  import { route, go } from './lib/router';
+  import { route, go, PAGE_ALIAS } from './lib/router';
   import { ago } from './lib/fmt';
   import MapPage from './pages/MapPage.svelte';
   import Production from './pages/Production.svelte';
@@ -17,13 +17,13 @@
   onMount(() => {
     start();
     // Ohne Adresse (reiner Aufruf der Startadresse) die gewählte Startseite öffnen
-    if (!location.hash || location.hash === '#' || location.hash === '#/') go($prefs.start);
+    if (!location.hash || location.hash === '#' || location.hash === '#/') go(PAGE_ALIAS[$prefs.start] || $prefs.start);
   });
   let showPrefs = $state(false);
 
   const NAV = [
-    ['lage', 'Lage', '◉'], ['karte', 'Karte', '◧'], ['produktion', 'Produktion', '⚙'], ['strom', 'Strom', 'ϟ'],
-    ['logistik', 'Logistik', '⇄'], ['verlauf', 'Verlauf', '∿'], ['rechner', 'Rechner', '∑'],
+    ['overview', 'Lage', '◉'], ['map', 'Karte', '◧'], ['production', 'Produktion', '⚙'], ['power', 'Strom', 'ϟ'],
+    ['logistics', 'Logistik', '⇄'], ['history', 'Verlauf', '∿'], ['planner', 'Rechner', '∑'],
   ];
   let feedOpen = $state(false);
 
@@ -48,7 +48,7 @@
 {:else}
 <div class="shell">
   <header>
-    <a class="brand" href="#/lage" aria-label="Zur Lage">
+    <a class="brand" href="#/overview" aria-label="Zur Lage">
       <svg viewBox="0 0 256 256" width="24" height="24" aria-hidden="true"><path fill="var(--ficsit)" fill-rule="evenodd" d="M16 16H196L240 60V240H16Z M56 240V141.72L121.36 76.35A40 40 0 1 1 149.65 104.64L96 158.28V240Z"/><circle cx="160" cy="66" r="17" fill="var(--ficsit)"/></svg>
       <span>{title}</span>
     </a>
@@ -73,12 +73,12 @@
         <p class="muted small">Einstellung über <code>SAVE_SOURCE</code> (Ordner, SFTP, FTP oder Server-API) — siehe README. Der nächste Versuch läuft automatisch in einer Minute.</p>
       </div>
     {/if}
-    {#if $route.page === 'produktion'}<Production />
-    {:else if $route.page === 'strom'}<Power />
-    {:else if $route.page === 'logistik'}<Logistics />
-    {:else if $route.page === 'verlauf'}<History />
-    {:else if $route.page === 'lage'}<Overview />
-    {:else if $route.page === 'rechner'}<Planner />
+    {#if $route.page === 'production'}<Production />
+    {:else if $route.page === 'power'}<Power />
+    {:else if $route.page === 'logistics'}<Logistics />
+    {:else if $route.page === 'history'}<History />
+    {:else if $route.page === 'overview'}<Overview />
+    {:else if $route.page === 'planner'}<Planner />
     {:else}<MapPage />{/if}
     {#if showPrefs}
       <aside class="prefs panel">
@@ -92,7 +92,7 @@
         <label class="ck"><input type="checkbox" bind:checked={$prefs.followMe} disabled={!$prefs.me} /> Karte folgt mir, wenn ich online bin</label>
         <label>Startseite
           <select class="field" bind:value={$prefs.start}>
-            <option value="lage">Lage</option><option value="karte">Karte (letzte Position)</option><option value="produktion">Produktion</option>
+            <option value="overview">Lage</option><option value="map">Karte (letzte Position)</option><option value="production">Produktion</option>
           </select></label>
         <label>Warennamen
           <select class="field" bind:value={$prefs.lang}>

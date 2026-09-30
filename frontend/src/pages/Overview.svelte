@@ -32,7 +32,7 @@
     const nop = (f?.machines || []).filter(m => m.nopower);
     if (nop.length) out.push({ text: nop.length + ' Maschinen ohne Stromanschluss (' + [...new Set(nop.map(m => m.name))].slice(0, 3).join(', ') + ')', level: 'error',
       go: () => toMap('machine:' + nop[0].id, nop[0].pos[0], nop[0].pos[1]) });
-    for (const c of f?.circuits || []) if (c.fuse) out.push({ text: 'Sicherung ausgelöst in Netz ' + c.id, level: 'error', go: () => go('strom') });
+    for (const c of f?.circuits || []) if (c.fuse) out.push({ text: 'Sicherung ausgelöst in Netz ' + c.id, level: 'error', go: () => go('power') });
     const bal = new Map((f?.balance || []).map(b => [b.item, b.prod - b.cons]));
     // Brennstoffpuffer im Gebäude ist klein; Warnung nur, wenn die Fabrik den Brennstoff nicht nachliefert
     for (const g of f?.generators || []) if (g.fuel_minutes != null && g.fuel_minutes < 30 && g.producing && !g.cls?.includes('Integrated') && (bal.get(g.fuel || '') ?? 0) < 0)
@@ -62,14 +62,14 @@
   <div class="kpis">
     {#each power as c}
       {@const pct = c.cap ? c.use / c.cap : 0}
-      <button class="kpi panel" onclick={() => go('strom')}>
+      <button class="kpi panel" onclick={() => go('power')}>
         <div class="v num">{fmtMW(c.use)}<small> / {fmtMW(c.cap)}</small></div>
         <div class="bar"><i style="width:{Math.min(100, pct * 100)}%;background:{pct > .95 ? C.bad : pct > .8 ? C.warn : 'var(--ficsit)'}"></i></div>
         <div class="l">Strom Netz {c.id}{c.fuse ? ' · Sicherung raus' : ''}</div>
       </button>
     {/each}
-    <button class="kpi panel" onclick={() => go('produktion')}><div class="v num">{counts.run}<small> / {f?.machines.length ?? '–'}</small></div><div class="l">Maschinen laufen</div></button>
-    <button class="kpi panel" onclick={() => go('produktion')}><div class="v num" style="color:{counts.starved ? C.bad : 'inherit'}">{counts.starved}</div><div class="l">mit Materialmangel · {counts.full} warten auf Abnahme</div></button>
+    <button class="kpi panel" onclick={() => go('production')}><div class="v num">{counts.run}<small> / {f?.machines.length ?? '–'}</small></div><div class="l">Maschinen laufen</div></button>
+    <button class="kpi panel" onclick={() => go('production')}><div class="v num" style="color:{counts.starved ? C.bad : 'inherit'}">{counts.starved}</div><div class="l">mit Materialmangel · {counts.full} warten auf Abnahme</div></button>
     <div class="kpi panel"><div class="v num">{$progress?.n_schematics ?? '–'}</div><div class="l">Freischaltungen · aktuell {$progress?.active || '–'}</div></div>
   </div>
 
@@ -87,7 +87,7 @@
         <thead><tr><th>Ware</th><th class="n">Saldo /min</th><th class="n">wartende Maschinen</th></tr></thead>
         <tbody>
           {#each shortages as s}
-            <tr class="click" onclick={() => go('rechner', { item: s.item, rate: Math.max(1, Math.round(-s.net || 10)) })}>
+            <tr class="click" onclick={() => go('planner', { item: s.item, rate: Math.max(1, Math.round(-s.net || 10)) })}>
               <td>{$tn(s.item)}{#if s.net >= 0}<div class="muted small">genug erzeugt, kommt aber nicht an</div>{/if}</td>
               <td class="n" style="color:{s.net < 0 ? C.bad : 'inherit'}">{fmtNum(s.net)}</td><td class="n">{s.waiting || '–'}</td></tr>
           {:else}<tr><td colspan="3" class="muted">Keine Ware im Minus.</td></tr>{/each}

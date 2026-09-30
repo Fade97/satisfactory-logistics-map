@@ -1,9 +1,10 @@
 // Persönliche Einstellungen je Browser (kein Login): wer bin ich, Startseite, Karte folgt mir, letzte Position.
 import { writable } from 'svelte/store';
 
-export interface Prefs { me: string; start: 'lage' | 'karte' | 'produktion'; followMe: boolean; lastView: { x: number; y: number; z: number } | null; lang: 'en' | 'de' }
+// ui = Sprache der Oberfläche (Englisch Standard), lang = Sprache der Warennamen
+export interface Prefs { me: string; start: string; followMe: boolean; lastView: { x: number; y: number; z: number } | null; lang: 'en' | 'de'; ui: 'en' | 'de' }
 const KEY = 'fgmap.prefs';
-const init: Prefs = { me: '', start: 'lage', followMe: false, lastView: null, lang: 'en', ...JSON.parse(localStorage.getItem(KEY) || '{}') };
+const init: Prefs = { me: '', start: 'overview', followMe: false, lastView: null, lang: 'en', ui: 'en', ...JSON.parse(localStorage.getItem(KEY) || '{}') };
 export const prefs = writable<Prefs>(init);
 prefs.subscribe(v => localStorage.setItem(KEY, JSON.stringify(v)));
 
