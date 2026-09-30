@@ -1,0 +1,81 @@
+@import '@fontsource/barlow/400.css';
+@import '@fontsource/barlow/500.css';
+@import '@fontsource/barlow-condensed/600.css';
+@import '@fontsource/barlow-condensed/700.css';
+
+:root {
+  --steel: #1b1c1e; --plate: #26282b; --plate2: #2e3034; --seam: #3a3d41;
+  --ficsit: #f59a23; --ficsit-dim: #8a5a1c; --cobalt: #5b9bd5;
+  --ok: #4cc38a; --warn: #e2b93b; --bad: #e5484d;
+  --text: #e8e6e1; --text2: #c3bfb7; --dim: #9a968e;
+  --cond: 'Barlow Condensed', 'Arial Narrow', sans-serif;
+  --body: 'Barlow', system-ui, sans-serif;
+  --notch: 10px;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--steel); color: var(--text); font: 14px/1.45 var(--body); }
+body { overflow: hidden; }
+#app { height: 100%; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+a { color: var(--ficsit); }
+:focus-visible { outline: 2px solid var(--ficsit); outline-offset: 2px; }
+h1, h2, h3 { font-family: var(--cond); font-weight: 700; margin: 0; letter-spacing: .01em; }
+h1 { font-size: 28px; } h2 { font-size: 20px; } h3 { font-size: 16px; }
+.num { font-variant-numeric: tabular-nums; }
+
+/* Das eine Merkmal: gestanzte Ecke oben rechts wie in den Spielmenüs */
+.panel {
+  background: var(--plate); position: relative;
+  clip-path: polygon(0 0, calc(100% - var(--notch)) 0, 100% var(--notch), 100% 100%, 0 100%);
+}
+.panel::before {           /* Orange Kante an der Stanzung */
+  content: ''; position: absolute; top: 0; right: 0; width: calc(var(--notch) * 1.42); height: 2px;
+  background: var(--ficsit); transform-origin: right top; transform: rotate(45deg) translate(0, 0); right: -1px;
+}
+
+.btn {
+  background: var(--plate2); border: 1px solid var(--seam); padding: 6px 12px; min-height: 34px;
+  font-family: var(--cond); font-weight: 600; font-size: 15px;
+}
+.btn:hover { border-color: var(--dim); }
+.btn.on, .btn.primary { background: var(--ficsit); color: #1b1c1e; border-color: var(--ficsit); }
+.btn:disabled { opacity: .5; cursor: default; }
+.field { background: var(--steel); border: 1px solid var(--seam); padding: 7px 10px; width: 100%; }
+.field:focus { border-color: var(--ficsit); outline: none; }
+
+table.t { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.t th { text-align: left; font-weight: 500; color: var(--dim); padding: 6px 8px; border-bottom: 1px solid var(--seam); white-space: nowrap; }
+table.t td { padding: 6px 8px; border-bottom: 1px solid #2c2e31; vertical-align: top; }
+table.t td.n, table.t th.n { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+table.t tr.click { cursor: pointer; }
+table.t tr.click:hover td { background: #2c2e32; }
+table.t th.sort { cursor: pointer; user-select: none; }
+table.t th.sort:hover { color: var(--text); }
+
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.muted { color: var(--dim); }
+.bar { height: 6px; background: #34363a; position: relative; overflow: hidden; }
+.bar > i { position: absolute; left: 0; top: 0; bottom: 0; }
+
+.page { height: 100%; overflow: auto; padding: 20px 24px 60px; }
+.page > * { max-width: 1280px; }
+.grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 16px; }
+.card { padding: 14px 16px 16px; }
+.card h2 { margin-bottom: 10px; }
+.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 14px 0 18px; }
+.kpi { padding: 10px 14px 12px; }
+.kpi .v { font-family: var(--cond); font-weight: 700; font-size: 28px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.kpi .l { color: var(--dim); font-size: 13px; }
+.src { color: var(--dim); font-size: 13px; }
+.tag { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; padding: 1px 8px; border: 1px solid var(--seam); color: var(--text2); white-space: nowrap; }
+
+@media (max-width: 760px) {
+  .page { padding: 14px 12px 90px; }
+  h1 { font-size: 24px; }
+  table.t { font-size: 12.5px; }
+  table.t td, table.t th { padding: 6px 5px; }
+  .hide-m { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

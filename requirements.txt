@@ -1,0 +1,4 @@
+# Dienst (mapd.py): Rechner (LP) und SFTP-Save-Quelle
+numpy==2.5.3
+scipy==1.18.1
+paramiko==5.0.0

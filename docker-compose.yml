@@ -1,0 +1,16 @@
+# Start:  cp .env.example .env  →  .env ausfüllen  →  docker compose up -d  →  http://localhost:8050
+services:
+  map:
+    build: .
+    container_name: satisfactory-map
+    ports:
+      - "8050:8050"
+    env_file: .env
+    volumes:
+      - map-data:/data                       # Verlauf, Notizen, zuletzt geholtes Save
+      # Läuft der Gameserver auf demselben Rechner: Save-Ordner direkt einhängen und in .env SAVE_SOURCE=/saves setzen
+      # - /pfad/zu/FactoryGame/Saved/SaveGames/server:/saves:ro
+    restart: unless-stopped
+
+volumes:
+  map-data:

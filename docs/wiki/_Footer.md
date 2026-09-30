@@ -1,0 +1,1 @@
+Satisfactory-Logistikkarte · [Repository](https://github.com/Fade97/satisfactory-logistikkarte) · [Fehler melden](https://github.com/Fade97/satisfactory-logistikkarte/issues) · Kein offizielles Projekt von Coffee Stain Studios

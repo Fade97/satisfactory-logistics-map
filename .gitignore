@@ -1,0 +1,19 @@
+# Python / Node
+.venv/
+__pycache__/
+*.pyc
+node_modules/
+frontend/dist/
+
+# Laufzeitdaten (Verlauf, Notiz-Passwort, geholte Saves) und Konfiguration
+data/
+saves/
+.env
+
+# lokale Arbeitsordner
+extracted/
+mods/*.smod
+out/
+web/
+*.tar.gz
+tests/fixtures/*.sav
