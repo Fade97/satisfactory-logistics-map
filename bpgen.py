@@ -37,9 +37,9 @@ def build(step):
     R = planner.RECIPES[recipe]
     bcls = BUILD.get(R['producedIn'][0])
     if bcls not in TEMPLATES:
-        raise BpError('Für %s gibt es noch keine Vorlage — bisher nur Constructor und Smelter.' % step['building'])
+        raise BpError('No template for %s yet — only Constructor and Smelter so far.' % step['building'])
     if recipe not in RPATH:
-        raise BpError('Asset-Pfad des Rezepts %s unbekannt.' % R['name'])
+        raise BpError('Asset path of recipe %s unknown.' % R['name'])
     tpl = os.path.join(HERE, 'gamedata', 'templates', TEMPLATES[bcls] + '.sbp')
     H, B = sbp.load(tpl)
     machines = [h for h in B['headers'] if h['type'] == 1 and h['cls'].endswith(bcls)]
@@ -47,7 +47,7 @@ def build(step):
     machines.sort(key=lambda h: (round(h['pos'][1]), h['pos'][0]))
     n = math.ceil(step['machines'] - 1e-6)
     if n > len(machines):
-        raise BpError('%d Maschinen nötig, die Vorlage hat %d. Mehrere Blueprints nebeneinander setzen (je %d).'
+        raise BpError('%d machines needed, the template has %d. Place several blueprints side by side (%d each).'
                       % (n, len(machines), len(machines)))
     drop = {h['name'] for h in machines[n:]}
     keep = [h['name'] for h in machines[:n]]
@@ -89,11 +89,11 @@ def build(step):
     H3, B3 = sbp.load(path)
     bad = sum(1 for o in B3['objs'] if o.get('obj') is None)
     if bad:
-        raise BpError('Erzeugtes Blueprint hat %d unlesbare Objekte' % bad)
+        raise BpError('Generated blueprint has %d unreadable objects' % bad)
     # kein Objekt darf mehr auf etwas Entferntes zeigen (Properties und Rohtrails, byte-genau geprüft)
     for o in B3['objs']:
         if any(d.encode() + b'.' in o['data'] or d.encode() + b'\x00' in o['data'] for d in drop):
-            raise BpError('Verweis auf entferntes Objekt übrig — Blueprint verworfen')
+            raise BpError('Reference to a removed object left — blueprint discarded')
     return path, dict(file=os.path.basename(path), machines=n, template=TEMPLATES[bcls], objects=len(hs))
 
 

@@ -116,7 +116,7 @@ def players(idx):
         d = props(sav.obj(idx, n)[1])
         veh = d.get('mSavedDrivenVehicle', ['', ''])[1]
         vcls = sbp.short(idx[veh][0]['cls']) if veh in idx else None
-        out.append(dict(name=d.get('mCachedPlayerName') or '(unbekannt)',
+        out.append(dict(name=d.get('mCachedPlayerName') or '(unknown)',
                         pos=[round(v, 1) for v in h['pos']],
                         vehicle=VEHICLES.get(vcls, vcls) if vcls else None))
     out.sort(key=lambda p: p['name'])
@@ -159,7 +159,7 @@ def extract(path, idx=None):
                                  type=VEHICLES.get(vid.rsplit('_', 1)[0], vid.rsplit('_', 1)[0]),
                                  last=round(float(vd.get('TimeSinceLastDocking') or 0)),
                                  round=round(float(vd.get('AverageTimeBetweenDocks') or 0))))
-        trucks.append(dict(kind='truck', id=st, name=text_prop(d.get('mStationName')) or '(unbenannt)',
+        trucks.append(dict(kind='truck', id=st, name=text_prop(d.get('mStationName')) or '(unnamed)',
                            pos=pos(st), mode='load' if load else 'unload',
                            items=[dict(item=i, amount=a) for i, a in inv],
                            vehicles=sorted(vehicles, key=lambda v: v['id'])))
@@ -198,7 +198,7 @@ def extract(path, idx=None):
                               items=[dict(item=i, amount=a) for i, a in inv]))
         modes = {p['mode'] for p in plats if p['mode']}
         trains.append(dict(kind='train', id=st, ident=n,
-                           name=text_prop(d.get('mStationName')) or '(unbenannt)', pos=pos(st),
+                           name=text_prop(d.get('mStationName')) or '(unnamed)', pos=pos(st),
                            mode=('load' if modes == {'load'} else 'unload' if modes == {'unload'}
                                  else 'mixed' if modes else 'none'),
                            platforms=plats,
@@ -217,7 +217,7 @@ def extract(path, idx=None):
                 sd = {p['name']: p['value'] for p in s}
                 ident = sd.get('Station', ['', ''])[1]
                 stops.append(dict(ident=ident, name=ident_to_station.get(ident, sbp.short(ident))))
-        routes.append(dict(name=text_prop(d.get('mTrainName')) or '(unbenannter Zug)',
+        routes.append(dict(name=text_prop(d.get('mTrainName')) or '(unnamed train)',
                            self_driving=bool(d.get('mIsSelfDrivingEnabled', False)), stops=stops))
 
     trucks.sort(key=lambda s: s['name'])
@@ -244,7 +244,7 @@ def save_vehicles(idx, cls=None):
         inv = inventory(idx, comp(idx, v, 'StorageInventory'))
         vid = sbp.short(v)
         trucks.append(dict(id=vid, type=VEHICLES.get(cls.get(v), cls.get(v)),
-                           name=text_prop(d.get('mVehicleName')) or '(unbenannt)',
+                           name=text_prop(d.get('mVehicleName')) or '(unnamed)',
                            pos=[round(x, 1) for x in idx[v][0]['pos']], speed=None,
                            autopilot=bool(d.get('mIsAutopilotEnabled')),
                            fuel=float(vd.get('mCurrentFuelAmount') or 0) > 0 or bool(inventory(idx, comp(idx, v, 'FuelInventory'))),
@@ -256,7 +256,7 @@ def save_vehicles(idx, cls=None):
         first = d.get('FirstVehicle', ['', ''])[1]
         if first not in idx:
             continue
-        trains.append(dict(name=text_prop(d.get('mTrainName')) or '(unbenannter Zug)',
+        trains.append(dict(name=text_prop(d.get('mTrainName')) or '(unnamed train)',
                            pos=[round(x, 1) for x in idx[first][0]['pos']], status=None, station=None,
                            speed=None, derailed=False, payload=None))
     return dict(trucks=sorted(trucks, key=lambda t: t['name']), trains=sorted(trains, key=lambda t: t['name']))

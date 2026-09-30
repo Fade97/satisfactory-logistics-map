@@ -1,6 +1,7 @@
 """Fabrik: Warenbilanz, Blockadegrund, Veröffentlichen + Verlauf, Fabrik-Cluster."""
 import collections
 
+from factory import EXTRACT
 from .core import ST, DB, paused
 
 
@@ -34,7 +35,8 @@ def block_kind(m):
     if m['state'] not in ('steht', 'teilweise'):
         return None
     w = m.get('why') or ''
-    return 'voll' if w.startswith('Ausgang voll') else 'mangel' if w.startswith('fehlt') else 'unklar'
+    return ('voll' if w.startswith(('Output full', 'Ausgang voll')) else 'mangel' if w.startswith(('Missing', 'fehlt'))
+            else 'unklar')
 
 
 def publish_factory(fac, source, t):
@@ -43,7 +45,7 @@ def publish_factory(fac, source, t):
         m['block'] = block_kind(m)
         m['nopower'] = m.get('circuit') in (None, -1) and m['cls'] not in ('Build_GeneratorFuel_C',)
         if m['nopower'] and m['state'] in ('steht', 'teilweise', 'aus'):
-            m['why'] = 'kein Strom — nicht an ein Stromnetz angeschlossen'
+            m['why'] = 'No power — not connected to a power grid'
             m['block'] = 'mangel'
     # leere Netze (FRM meldet alle 75 Circuit-Gruppen) ausblenden
     fac['circuits'] = [c for c in fac['circuits'] if c.get('cap') or c.get('n_mach') or c.get('use')]
@@ -152,7 +154,7 @@ def clusters(machines, links=None, eps=60.0):
         # Name aus dem Soll (max), nicht dem Ist — sonst heißt eine stehende Fabrik nach Zufall
         soll = {k: v - cmax.get(k, 0) for k, v in pmax.items() if v - cmax.get(k, 0) > 0.05}
         # Rohstoffe (aus Extraktoren) nur dann als Name, wenn die Gruppe nichts anderes herstellt
-        raw = {o['item'] for m in g if (m.get('recipe') or '').startswith('Abbau') for o in m['out']}
+        raw = {o['item'] for m in g if (m.get('recipe') or '').startswith(EXTRACT) for o in m['out']}
         made = {k: v for k, v in soll.items() if k not in raw} or soll
         # nach Stückzahl gewichtet wäre Schrauben immer vorn — nach Anzahl der Maschinen, die es herstellen
         nmach = collections.Counter(o['item'] for m in g for o in m['out'][:1])
@@ -160,7 +162,7 @@ def clusters(machines, links=None, eps=60.0):
         xs, ys = [m['pos'][0] for m in g], [m['pos'][1] for m in g]
         st = collections.Counter(m['state'] for m in g)
         blk = collections.Counter(m.get('block') for m in g if m['state'] == 'steht')
-        auto = main + ('-Abbau' if all(m['recipe'] and m['recipe'].startswith('Abbau') for m in g) else '-Fabrik')
+        auto = main + (' Mining' if all(m['recipe'] and m['recipe'].startswith(EXTRACT) for m in g) else ' Factory')
         nm = names.get(key)
         out.append(dict(key=key, name=(nm or {}).get('name') or auto, auto=auto, renamed=bool(nm and nm.get('name')),
                         status=(nm or {}).get('status') or 'aktiv',

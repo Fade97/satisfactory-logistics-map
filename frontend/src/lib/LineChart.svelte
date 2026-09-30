@@ -2,6 +2,7 @@
   // Zeitreihe als SVG: eine Achse, 2px-Linien, Legende ab zwei Reihen, Fadenkreuz + Tooltip.
   // Farben aus SERIES (validiert gegen #1b1c1e, dataviz-Validator 29.09.2026) — feste Reihenfolge.
   import { SERIES, fmtNum } from './fmt';
+  import { t, locale } from './i18n';
 
   interface S { key: string; label: string; points: [number, number][]; color?: string; dash?: boolean }
   let { series = [], unit = '', height = 220, area = false }: { series: S[]; unit?: string; height?: number; area?: boolean } = $props();
@@ -29,8 +30,8 @@
   });
   function tlabel(t: number) {
     const d = new Date(t * 1000), span = t1 - t0;
-    return span > 3 * 86400 ? d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })
-      : d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+    return span > 3 * 86400 ? d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })
+      : d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
   }
   // Lücken (Spielpause, Dienst aus) nicht überbrücken: Sprung > 3× typischer Abstand → neuer Linienzug
   function step(pts: [number, number][]) {
@@ -64,20 +65,20 @@
 
 <div class="chart" bind:clientWidth={w}>
   {#if !all.length}
-    <div class="empty">Noch keine Werte — der Verlauf füllt sich minütlich, sobald Daten ankommen.</div>
+    <div class="empty">{$t('Noch keine Werte — der Verlauf füllt sich minütlich, sobald Daten ankommen.')}</div>
   {:else}
     {#if series.length > 1}
       <div class="legend">
         {#each series as s, i}<span><i style="background:{color(s, i)}"></i>{s.label}</span>{/each}
       </div>
     {/if}
-    <svg width={w} {height} role="img" aria-label="Verlauf" onpointermove={move} onpointerleave={() => (hoverX = null)}>
+    <svg width={w} {height} role="img" aria-label={$t('Verlauf')} onpointermove={move} onpointerleave={() => (hoverX = null)}>
       {#each ticks as v}
         <line x1={pad.l} x2={w - pad.r} y1={Y(v)} y2={Y(v)} class="grid" />
         <text x={pad.l - 6} y={Y(v) + 4} class="ax" text-anchor="end">{fmtNum(v)}</text>
       {/each}
-      {#each tticks as t}
-        <text x={X(t)} y={height - 6} class="ax" text-anchor="middle">{tlabel(t)}</text>
+      {#each tticks as tt}
+        <text x={X(tt)} y={height - 6} class="ax" text-anchor="middle">{tlabel(tt)}</text>
       {/each}
       {#each series as s, i}
         {#if area && s.points.length > 1}
@@ -100,7 +101,7 @@
     </svg>
     {#if hoverT !== null}
       <div class="tip" style="left:{Math.min(hoverX + 12, w - 190)}px">
-        <div class="tt">{new Date(nearest(series[0].points, hoverT)[0] * 1000).toLocaleString('de-DE', { dateStyle: 'short', timeStyle: 'short' })}</div>
+        <div class="tt">{new Date(nearest(series[0].points, hoverT)[0] * 1000).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}</div>
         {#each series as s, i}
           {#if s.points.length}
             <div class="tr"><i style="background:{color(s, i)}"></i>{s.label}<b>{fmtNum(nearest(s.points, hoverT)[1])} {unit}</b></div>

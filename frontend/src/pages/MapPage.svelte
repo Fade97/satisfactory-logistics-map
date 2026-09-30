@@ -14,6 +14,7 @@
   import ItemPicker from '../lib/ItemPicker.svelte';
   import { prefs, rememberView } from '../lib/prefs';
   import { tn, both } from '../lib/names';
+  import { t, lx, locale } from '../lib/i18n';
 
   let { kiosk = false, followKey = '' }: { kiosk?: boolean; followKey?: string } = $props();
 
@@ -131,7 +132,7 @@
     for (const f of $factory?.factories || []) if (f.out.some(o => o.item === it) || f.inp.some(o => o.item === it)) keys.add('factory:' + f.key);
     return { keys, paths: ($flow || {})[it] || [], prod, cons, np, nc, ns };
   });
-  const flowItems = $derived([...new Set([...Object.keys($flow || {}), ...($factory?.balance || []).map(b => b.item)])].sort((a, b) => a.localeCompare(b, 'de')));
+  const flowItems = $derived([...new Set([...Object.keys($flow || {}), ...($factory?.balance || []).map(b => b.item)])].sort((a, b) => a.localeCompare(b, locale())));
   $effect(() => {
     const fi = flowInfo;
     untrack(() => {
@@ -154,12 +155,12 @@
   // Sammelobjekte: „noch 62 von 106“ im Ebenenmenü
   const collectCount = $derived.by(() => {
     const c = $collectibles; if (!c) return {} as Record<string, string>;
-    const o = c.open || {}, t = c.total || {};
+    const o = c.open || {}, tot = c.total || {};
     return {
-      c_somersloop: `${(t.somersloop ?? 0) - (o.somersloop?.length ?? 0)} / ${t.somersloop}`,
-      c_mercer: `${(t.mercer ?? 0) - (o.mercer?.length ?? 0)} / ${t.mercer}`,
-      c_slug: `${(o.slug1?.length ?? 0) + (o.slug2?.length ?? 0) + (o.slug3?.length ?? 0)} offen`,
-      c_droppod: `${c.looted_pods} / ${t.droppod}`,
+      c_somersloop: `${(tot.somersloop ?? 0) - (o.somersloop?.length ?? 0)} / ${tot.somersloop}`,
+      c_mercer: `${(tot.mercer ?? 0) - (o.mercer?.length ?? 0)} / ${tot.mercer}`,
+      c_slug: $t('{n} offen', { n: (o.slug1?.length ?? 0) + (o.slug2?.length ?? 0) + (o.slug3?.length ?? 0) }),
+      c_droppod: `${c.looted_pods} / ${tot.droppod}`,
     } as Record<string, string>;
   });
 
@@ -506,15 +507,15 @@
 
   function tipText(o: MapObj) {
     const d = o.data;
-    if (o.kind === 'station') return (d.kind === 'train' ? 'Zugbahnhof' : 'Truckstation') + ' · ' + MODE_DE[d.mode] + (d.items[0] ? ' · ' + d.items.map((i: any) => $tn(i.item)).join(', ') : '');
-    if (o.kind === 'machine') return $tn(d.name) + ' · ' + d.state + ' ' + d.pct + ' %' + (d.why ? ' · ' + d.why : '');
-    if (o.kind === 'node') return (d.used ? 'belegt' : 'frei') + (d.rate ? ' · ' + d.rate + '/min' : '');
-    if (o.kind === 'player') return d.online === null ? 'Stand des Saves' : d.online ? 'online' : 'offline';
-    if (o.kind === 'truck' || o.kind === 'train') return (d.cargo ? d.cargo.item + ' · ' : '') + (d.speed != null ? Math.round(d.speed) + ' km/h' : 'Position aus dem Save');
-    if (o.kind === 'factory') return d.n + ' Maschinen · ' + (d.states['steht'] || 0) + ' stehen';
+    if (o.kind === 'station') return (d.kind === 'train' ? $t('Zugbahnhof') : $t('Truckstation')) + ' · ' + $t(MODE_DE[d.mode]) + (d.items[0] ? ' · ' + d.items.map((i: any) => $tn(i.item)).join(', ') : '');
+    if (o.kind === 'machine') return $tn(d.name) + ' · ' + $t(d.state) + ' ' + d.pct + ' %' + (d.why ? ' · ' + $lx(d.why) : '');
+    if (o.kind === 'node') return (d.used ? $t('belegt') : $t('frei')) + (d.rate ? ' · ' + d.rate + '/min' : '');
+    if (o.kind === 'player') return d.online === null ? $t('Stand des Saves') : d.online ? $t('online') : $t('offline');
+    if (o.kind === 'truck' || o.kind === 'train') return (d.cargo ? $tn(d.cargo.item) + ' · ' : '') + (d.speed != null ? Math.round(d.speed) + ' km/h' : $t('Position aus dem Save'));
+    if (o.kind === 'factory') return $t('{n} Maschinen · {s} stehen', { n: d.n, s: d.states['steht'] || 0 });
     if (o.kind === 'pin') return d.author;
-    if (o.kind === 'generator') return d.producing ? 'erzeugt ' + d.cap + ' MW' : 'steht';
-    if (o.kind === 'collectible') return 'noch nicht eingesammelt · Höhe ' + d.pos[2] + ' m';
+    if (o.kind === 'generator') return d.producing ? $t('erzeugt {n} MW', { n: d.cap }) : $t('steht');
+    if (o.kind === 'collectible') return $t('noch nicht eingesammelt · Höhe {z} m', { z: d.pos[2] });
     return '';
   }
 </script>
@@ -522,58 +523,58 @@
 <div class="wrap" class:kiosk>
   {#if !kiosk}
   <StationList bind:q bind:F bind:open={showList} selKey={sel?.key || ''} onpick={pick} onfit={(a, b, c, d) => V?.fit(a, b, c, d)} />
-  {#if showList}<button class="backdrop" aria-label="Liste schließen" onclick={() => (showList = false)}></button>{/if}
+  {#if showList}<button class="backdrop" aria-label={$t('Liste schließen')} onclick={() => (showList = false)}></button>{/if}
   {/if}
 
   <section class="map">
-    <canvas bind:this={cv} aria-label="Fabrikkarte"></canvas>
+    <canvas bind:this={cv} aria-label={$t('Fabrikkarte')}></canvas>
     {#if tip && !isMobile}
       <div class="tip" style="left:{tip.x + 14}px;top:{tip.y + 14}px"><b>{tip.o.kind === 'machine' || tip.o.kind === 'node' || tip.o.kind === 'generator' ? $tn(tip.o.kind === 'machine' ? (tip.o.data.recipe || tip.o.data.name) : tip.o.kind === 'node' ? tip.o.data.item : tip.o.data.name) : tip.o.label}</b><span>{tipText(tip.o)}</span></div>
     {/if}
 
     {#if !kiosk}
     <div class="ctl">
-      <button class="cb m-only" onclick={() => (showList = !showList)} aria-label="Stationsliste">☰</button>
-      <div class="grp"><button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1.5)} aria-label="Hineinzoomen">+</button>
-        <button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1 / 1.5)} aria-label="Herauszoomen">−</button></div>
-      <button class="cb wide" onclick={fitFactory} title="Auf das Fabrikgebiet (f)"><span class="i">⌂</span><span class="t">Fabrik</span></button>
-      <button class="cb wide" onclick={fitMap} title="Ganze Karte (g)"><span class="i">⤢</span><span class="t">Ganze Karte</span></button>
-      <button class="cb wide" class:on={showLayers} onclick={() => (showLayers = !showLayers)}><span class="i">◫</span><span class="t">Ebenen</span></button>
-      <button class="cb wide" class:on={!!draw} onclick={() => (draw ? (draw = null) : startDraw('point'))} title="Notiz auf die Karte setzen"><span class="i">✎</span><span class="t">Notiz</span></button>
-      <button class="cb wide" class:on={showZ || !!zRange} onclick={() => { showZ = !showZ; if (!showZ) zRange = null; }} title="Nach Höhe/Stockwerk filtern"><span class="i">☰</span><span class="t">Höhe</span></button>
-      <button class="cb wide" class:on={!!measure} onclick={() => { measure = measure ? null : []; select(null); V?.redraw(); }} title="Strecke und Fläche messen"><span class="i">⟷</span><span class="t">Messen</span></button>
-      <button class="cb wide" class:on={showTT} onclick={() => (showTT = !showTT)} title="Die letzten Stunden abspielen"><span class="i">◷</span><span class="t">Zeitreise</span></button>
-      <button class="cb wide" class:on={showFlow || !!flowItem} onclick={() => { showFlow = !showFlow; if (!showFlow) flowItem = ''; }} title="Eine Ware durch die Fabrik verfolgen"><span class="i">⇶</span><span class="t">Warenfluss</span></button>
+      <button class="cb m-only" onclick={() => (showList = !showList)} aria-label={$t('Stationsliste')}>☰</button>
+      <div class="grp"><button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1.5)} aria-label={$t('Hineinzoomen')}>+</button>
+        <button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1 / 1.5)} aria-label={$t('Herauszoomen')}>−</button></div>
+      <button class="cb wide" onclick={fitFactory} title={$t('Auf das Fabrikgebiet (f)')}><span class="i">⌂</span><span class="t">{$t('Fabrik')}</span></button>
+      <button class="cb wide" onclick={fitMap} title={$t('Ganze Karte (g)')}><span class="i">⤢</span><span class="t">{$t('Ganze Karte')}</span></button>
+      <button class="cb wide" class:on={showLayers} onclick={() => (showLayers = !showLayers)}><span class="i">◫</span><span class="t">{$t('Ebenen')}</span></button>
+      <button class="cb wide" class:on={!!draw} onclick={() => (draw ? (draw = null) : startDraw('point'))} title={$t('Notiz auf die Karte setzen')}><span class="i">✎</span><span class="t">{$t('Notiz')}</span></button>
+      <button class="cb wide" class:on={showZ || !!zRange} onclick={() => { showZ = !showZ; if (!showZ) zRange = null; }} title={$t('Nach Höhe/Stockwerk filtern')}><span class="i">☰</span><span class="t">{$t('Höhe')}</span></button>
+      <button class="cb wide" class:on={!!measure} onclick={() => { measure = measure ? null : []; select(null); V?.redraw(); }} title={$t('Strecke und Fläche messen')}><span class="i">⟷</span><span class="t">{$t('Messen')}</span></button>
+      <button class="cb wide" class:on={showTT} onclick={() => (showTT = !showTT)} title={$t('Die letzten Stunden abspielen')}><span class="i">◷</span><span class="t">{$t('Zeitreise')}</span></button>
+      <button class="cb wide" class:on={showFlow || !!flowItem} onclick={() => { showFlow = !showFlow; if (!showFlow) flowItem = ''; }} title={$t('Eine Ware durch die Fabrik verfolgen')}><span class="i">⇶</span><span class="t">{$t('Warenfluss')}</span></button>
       {#if showLayers}
         <div class="layers panel">
           {#each LAYERS as [k, l]}
             <label><input type="checkbox" bind:checked={layers[k]} /> {l}{#if collectCount[k]}<span class="cnt">{collectCount[k]}</span>{/if}</label>
           {/each}
-          <label><input type="checkbox" checked={layers.labels !== false} onchange={e => (layers.labels = (e.target as HTMLInputElement).checked)} /> Beschriftungen</label>
-          <button class="lg" onclick={() => (showLegend = !showLegend)}>Legende {showLegend ? 'ausblenden' : 'zeigen'}</button>
+          <label><input type="checkbox" checked={layers.labels !== false} onchange={e => (layers.labels = (e.target as HTMLInputElement).checked)} /> {$t('Beschriftungen')}</label>
+          <button class="lg" onclick={() => (showLegend = !showLegend)}>{showLegend ? $t('Legende ausblenden') : $t('Legende zeigen')}</button>
         </div>
       {/if}
       {#if draw}
         <div class="drawbar panel">
           <div class="seg">
-            {#each [['point', 'Punkt'], ['line', 'Linie'], ['area', 'Fläche']] as [s, l]}
+            {#each [['point', $t('Punkt')], ['line', $t('Linie')], ['area', $t('Fläche')]] as [s, l]}
               <button class:on={draw.shape === s} onclick={() => (draw = { shape: s as any, pts: [] })}>{l}</button>
             {/each}
           </div>
-          <p>{draw.shape === 'point' ? 'Tippe auf die Stelle der Notiz.' : 'Setze Punkte, dann „Fertig“.'}</p>
-          {#if draw.shape !== 'point'}<button class="btn primary" onclick={finishDraw} disabled={draw.pts.length < (draw.shape === 'line' ? 2 : 3)}>Fertig</button>{/if}
-          <button class="btn" onclick={() => (draw = null)}>Abbrechen</button>
+          <p>{draw.shape === 'point' ? $t('Tippe auf die Stelle der Notiz.') : $t('Setze Punkte, dann „Fertig“.')}</p>
+          {#if draw.shape !== 'point'}<button class="btn primary" onclick={finishDraw} disabled={draw.pts.length < (draw.shape === 'line' ? 2 : 3)}>{$t('Fertig')}</button>{/if}
+          <button class="btn" onclick={() => (draw = null)}>{$t('Abbrechen')}</button>
         </div>
       {/if}
     </div>
     {#if showLegend}
       <div class="legend panel">
-        <div><span class="dot" style="background:{C.load}"></span> Beladen <span class="dot" style="background:{C.unload}"></span> Entladen <span class="dot" style="background:{C.mixed}"></span> gemischt</div>
-        <div><span class="sq"></span> Zugbahnhof · <span class="dot" style="background:#c3bfb7"></span> Truckstation · Balken = Füllstand</div>
-        <div><span class="dot" style="background:#f59a23;box-shadow:0 0 0 2px #f5f2ea"></span> Spieler · <span class="sq" style="background:{C.train}"></span> Zug · <span class="dia"></span> Fahrzeug</div>
-        <div><span class="sq sm" style="background:{C.ok}"></span> läuft <span class="sq sm" style="background:{C.warn}"></span> teilweise <span class="sq sm" style="background:{C.bad}"></span> Materialmangel <span class="sq sm" style="background:#8a857c"></span> Ausgang voll</div>
-        <div>Fabrik-Umriss: grün läuft · gelb etwas Mangel · rot viel Mangel</div>
-        <div class="muted">Kartengrafik: satisfactory.wiki.gg · CC BY-NC-SA</div>
+        <div><span class="dot" style="background:{C.load}"></span> {$t('Beladen')} <span class="dot" style="background:{C.unload}"></span> {$t('Entladen')} <span class="dot" style="background:{C.mixed}"></span> {$t('gemischt')}</div>
+        <div><span class="sq"></span> {$t('Zugbahnhof')} · <span class="dot" style="background:#c3bfb7"></span> {$t('Truckstation')} · {$t('Balken = Füllstand')}</div>
+        <div><span class="dot" style="background:#f59a23;box-shadow:0 0 0 2px #f5f2ea"></span> {$t('Spieler')} · <span class="sq" style="background:{C.train}"></span> {$t('Zug')} · <span class="dia"></span> {$t('Fahrzeug')}</div>
+        <div><span class="sq sm" style="background:{C.ok}"></span> {$t('läuft')} <span class="sq sm" style="background:{C.warn}"></span> {$t('teilweise')} <span class="sq sm" style="background:{C.bad}"></span> {$t('Materialmangel')} <span class="sq sm" style="background:#8a857c"></span> {$t('Ausgang voll')}</div>
+        <div>{$t('Fabrik-Umriss: grün läuft · gelb etwas Mangel · rot viel Mangel')}</div>
+        <div class="muted">{$t('Kartengrafik:')} satisfactory.wiki.gg · CC BY-NC-SA</div>
       </div>
     {/if}
     <div class="scale"><span style="width:{scaleW}px"></span>{scaleTxt}</div>
@@ -581,7 +582,7 @@
 
     {#if sel && !kiosk}
       <div class="detail panel">
-        <button class="close" onclick={() => select(null)} aria-label="Schließen">✕</button>
+        <button class="close" onclick={() => select(null)} aria-label={$t('Schließen')}>✕</button>
         <Detail o={sel} onpick={pick} following={follow === sel.key}
           onfollow={['player', 'train', 'truck'].includes(sel.kind) ? () => (follow = follow === sel!.key ? '' : sel!.key) : undefined}
           onpin={editObj} />
@@ -591,38 +592,38 @@
     {#if showZ && !kiosk}<HeightPanel bind:zRange onclose={() => (showZ = false)} />{/if}
     {#if measure && !kiosk}
       <div class="flowbar panel meas">
-        <div class="zh"><b>Messen</b><button class="x" onclick={() => { measure = null; V?.redraw(); }} aria-label="Messen beenden">✕</button></div>
+        <div class="zh"><b>{$t('Messen')}</b><button class="x" onclick={() => { measure = null; V?.redraw(); }} aria-label={$t('Messen beenden')}>✕</button></div>
         {#if measureInfo}
-          <div class="fs"><span>Strecke <b class="num">{measureInfo.len >= 1000 ? (measureInfo.len / 1000).toFixed(2) + ' km' : Math.round(measureInfo.len) + ' m'}</b></span>
-            {#if measure.length > 2}<span>Luftlinie Anfang–Ende <b class="num">{Math.round(measureInfo.direct)} m</b></span>
-              <span>Fläche <b class="num">{measureInfo.area >= 1e6 ? (measureInfo.area / 1e6).toFixed(2) + ' km²' : fmtNum(Math.round(measureInfo.area)) + ' m²'}</b> ≈ {fmtNum(Math.floor(measureInfo.area / 64))} Fundamente 8×8</span>{/if}
-            <span>≈ {fmtNum(Math.ceil(measureInfo.len / 12))} Gleisstücke · {fmtNum(Math.ceil(measureInfo.len / 56))} Bänder (max. 56 m)</span></div>
-          <button class="lk" onclick={() => { measure = measure!.slice(0, -1); V?.redraw(); }}>letzten Punkt entfernen</button>
-        {:else}<p class="muted">Tippe Punkte auf die Karte. Auf Stationen und Maschinen rastet der Punkt ein.</p>{/if}
+          <div class="fs"><span>{$t('Strecke')} <b class="num">{measureInfo.len >= 1000 ? (measureInfo.len / 1000).toFixed(2) + ' km' : Math.round(measureInfo.len) + ' m'}</b></span>
+            {#if measure.length > 2}<span>{$t('Luftlinie Anfang–Ende')} <b class="num">{Math.round(measureInfo.direct)} m</b></span>
+              <span>{$t('Fläche')} <b class="num">{measureInfo.area >= 1e6 ? (measureInfo.area / 1e6).toFixed(2) + ' km²' : fmtNum(Math.round(measureInfo.area)) + ' m²'}</b> ≈ {$t('{n} Fundamente 8×8', { n: fmtNum(Math.floor(measureInfo.area / 64)) })}</span>{/if}
+            <span>≈ {$t('{r} Gleisstücke · {b} Bänder (max. 56 m)', { r: fmtNum(Math.ceil(measureInfo.len / 12)), b: fmtNum(Math.ceil(measureInfo.len / 56)) })}</span></div>
+          <button class="lk" onclick={() => { measure = measure!.slice(0, -1); V?.redraw(); }}>{$t('letzten Punkt entfernen')}</button>
+        {:else}<p class="muted">{$t('Tippe Punkte auf die Karte. Auf Stationen und Maschinen rastet der Punkt ein.')}</p>{/if}
       </div>
     {/if}
     {#if pickMode && !kiosk}
-      <div class="flowbar panel pick">Tippe auf die Stelle, an der gebaut werden soll.
-        <a class="lk" href="#/planner">Abbrechen</a></div>
+      <div class="flowbar panel pick">{$t('Tippe auf die Stelle, an der gebaut werden soll.')}
+        <a class="lk" href="#/planner">{$t('Abbrechen')}</a></div>
     {/if}
     {#if (showFlow || flowItem) && !kiosk}
       <div class="flowbar panel">
-        <div class="fr"><ItemPicker bind:value={flowItem} items={flowItems} placeholder="Ware verfolgen, z. B. Stahlträger" onpick={() => setTimeout(flowFit, 30)} />
-          <button class="x" onclick={() => { flowItem = ''; showFlow = false; }} aria-label="Warenfluss beenden">✕</button></div>
+        <div class="fr"><ItemPicker bind:value={flowItem} items={flowItems} placeholder={$t('Ware verfolgen, z. B. Stahlträger')} onpick={() => setTimeout(flowFit, 30)} />
+          <button class="x" onclick={() => { flowItem = ''; showFlow = false; }} aria-label={$t('Warenfluss beenden')}>✕</button></div>
         {#if flowInfo}
-          <div class="fs"><span><b class="num">{fmtNum(flowInfo.prod)}</b>/min erzeugt · {flowInfo.np} Maschinen</span>
-            <span><b class="num">{fmtNum(flowInfo.cons)}</b>/min verbraucht · {flowInfo.nc}</span>
-            <span>{flowInfo.ns} Stationen · {flowInfo.paths.length} Bänder/Rohre</span></div>
-          {#if !flowInfo.paths.length}<p class="muted">Im letzten Save lag diese Ware auf keinem Band.</p>{/if}
-          <button class="lk" onclick={flowFit}>Auf alle Stellen zoomen</button>
+          <div class="fs"><span><b class="num">{fmtNum(flowInfo.prod)}</b>{$t('/min erzeugt · {n} Maschinen', { n: flowInfo.np })}</span>
+            <span><b class="num">{fmtNum(flowInfo.cons)}</b>{$t('/min verbraucht · {n}', { n: flowInfo.nc })}</span>
+            <span>{$t('{s} Stationen · {p} Bänder/Rohre', { s: flowInfo.ns, p: flowInfo.paths.length })}</span></div>
+          {#if !flowInfo.paths.length}<p class="muted">{$t('Im letzten Save lag diese Ware auf keinem Band.')}</p>{/if}
+          <button class="lk" onclick={flowFit}>{$t('Auf alle Stellen zoomen')}</button>
         {/if}
       </div>
     {/if}
     {#if follow && !kiosk}
       <div class="following" class:paused={followState !== 'aktiv'}>
-        {#if followState === 'aktiv'}Karte folgt {follow.split(':').slice(1).join(':')}
-        {:else}{follow.split(':').slice(1).join(':')} ist offline — Folgen startet automatisch beim nächsten Login{/if}
-        <button onclick={() => (follow = '')}>beenden</button></div>
+        {#if followState === 'aktiv'}{$t('Karte folgt {name}', { name: follow.split(':').slice(1).join(':') })}
+        {:else}{$t('{name} ist offline — Folgen startet automatisch beim nächsten Login', { name: follow.split(':').slice(1).join(':') })}{/if}
+        <button onclick={() => (follow = '')}>{$t('beenden')}</button></div>
     {/if}
   </section>
 </div>

@@ -3,6 +3,7 @@ import datetime, os, time, traceback
 
 import frm
 from . import source
+from factory import EXTRACT
 from .core import ST, DB, log, paused, frm_status, status_obj, SAVES, LIVE_EVERY, FACTORY_EVERY, SAVE_EVERY
 from .factory import publish_factory
 from .events import live_events, changelog, growth, storage_events
@@ -39,10 +40,10 @@ def save_cycle(no_fetch=False):
         ST.unlocked = planner.unlocked(S)
         ST.put('recipes', planner.recipe_list(ST.unlocked))
     except Exception as e:
-        log('Rezepte:', repr(e)[:120])
+        log('Recipes:', repr(e)[:120])
     data['map'] = MAP
     data['source'] = dict(save=label, saved_at=saved_at, rendered_at=datetime.datetime.now().isoformat(timespec='seconds'),
-                          label='Save %s · Spielstand vom %s' % (label, datetime.datetime.fromtimestamp(mtime).strftime('%d.%m.%Y %H:%M')))
+                          label='Save %s · saved %s' % (label, datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M')))
     ST.put('stations', data)
     ST.put('nodes', fac['nodes'])
     ST.put('flow', fac.get('flow') or {})
@@ -51,7 +52,7 @@ def save_cycle(no_fetch=False):
         import lightweight
         ST.put('detail', lightweight.detail_binary(S))
     except Exception as e:
-        log('Detailebene:', repr(e)[:120])
+        log('Detail layer:', repr(e)[:120])
     ST.put('storage', fac.get('storage') or [])
     if fac.get('sink') and not paused():
         DB.put_series(mtime, {'sink:points': fac['sink']['points'], 'sink:coupons': fac['sink']['coupons']})
@@ -65,7 +66,7 @@ def save_cycle(no_fetch=False):
         publish_factory(fac, 'save', mtime)
     changelog(fac, mtime)
     growth(fac, mtime)
-    log('Save %s gelesen (%.1fs): %d Maschinen, %d Stationen' % (label, time.time() - t0, len(fac['machines']),
+    log('Save %s read (%.1fs): %d machines, %d stations' % (label, time.time() - t0, len(fac['machines']),
                                                                  len(data['trucks']) + len(data['trains'])))
 
 
@@ -130,7 +131,7 @@ def factory_loop():
                     ST.geo = g; ST.put('geo', dict(at=g['at'], source='frm', rails=g['rails'], pipes=g['pipes'], belts=g['belts']))
                     last_geo = t
             except Exception as e:
-                log('FRM-Fabrik fehlgeschlagen:', repr(e)[:160])
+                log('FRM factory failed:', repr(e)[:160])
         elif ST.factory is not None and ST.factory_source == 'save':
             pass                                    # Save-Stand bleibt, kommt mit dem nächsten Autosave neu
         try:
@@ -147,10 +148,10 @@ def save_loop(no_fetch):
             ST.save_error = None
         except (SystemExit, source.SourceError) as e:
             ST.save_error = str(e)
-            log('Save-Abruf:', e)
+            log('Save fetch:', e)
         except Exception as e:
-            ST.save_error = 'Save nicht lesbar: ' + repr(e)[:200]
-            log('Save-Lauf fehlgeschlagen:\n' + traceback.format_exc()[-800:])
+            ST.save_error = 'Save not readable: ' + repr(e)[:200]
+            log('Save run failed:\n' + traceback.format_exc()[-800:])
         time.sleep(SAVE_EVERY)
 
 
@@ -179,7 +180,7 @@ def frm_factory():
         b = base.get(mid, {})
         recipe = m.get('Recipe') or None
         if is_ex:                                     # Namen wie im Save-Pfad, damit Filter/Knoten passen
-            recipe = 'Abbau ' + (prod[0].get('Name') if prod else (recipe or '?'))
+            recipe = EXTRACT + (prod[0].get('Name') if prod else (recipe or '?'))
         mach.append(dict(id=mid, cls=m.get('ClassName'), name=m.get('Name'), pos=[round(m['location']['x'] / 100), round(m['location']['y'] / 100)],
                          z=round(m['location']['z'] / 100), recipe=recipe, clock=round(float(m.get('ManuSpeed') or 100) / 100, 3),
                          node=b.get('node'), purity=b.get('purity'), yaw=b.get('yaw', round(float(m['location'].get('rotation') or 0))),
@@ -189,7 +190,7 @@ def frm_factory():
                          out=[dict(item=p.get('Name'), rate=round(float(p.get('CurrentProd') or 0), 2), max=round(float(p.get('MaxProd') or 0), 2)) for p in prod],
                          inp=[dict(item=i.get('Name'), rate=round(float(i.get('CurrentConsumed') or 0), 2), max=round(float(i.get('MaxConsumed') or 0), 2)) for i in ing]))
     if extractors is None:
-        mach += [x for x in save_fac.get('machines', []) if (x.get('recipe') or '').startswith('Abbau')]
+        mach += [x for x in save_fac.get('machines', []) if (x.get('recipe') or '').startswith(EXTRACT)]
     circ = []
     for c in frm.get('getPower'):
         circ.append(dict(id=c.get('CircuitGroupID'), prod=round(float(c.get('PowerProduction') or 0), 1),

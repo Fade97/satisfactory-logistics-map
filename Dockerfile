@@ -1,4 +1,4 @@
-# Logistikkarte: Frontend bauen (Node/pnpm), dann ein schlankes Python-Image mit Dienst + fertiger Website.
+# Logistics Map: build the frontend (Node/pnpm), then a slim Python image with the service + finished website.
 FROM node:22-slim AS web
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable

@@ -1,18 +1,19 @@
 <script lang="ts">
   // Notiz anlegen/bearbeiten oder eine Fabrik umbenennen — beides verlangt das gemeinsame Passwort.
   import { password, author, post, checkPassword } from './api';
+  import { t, tr, lx, lxr } from './i18n';
 
   let { pin, onclose }: { pin: any; onclose: (saved: boolean) => void } = $props();
   const CATS: [string, string, string][] = [
-    ['geplant', 'Geplant', '#f59a23'], ['problem', 'Problem', '#e5484d'], ['rohstoff', 'Rohstoff', '#4cc38a'],
-    ['treffpunkt', 'Treffpunkt', '#5b9bd5'], ['notiz', 'Notiz', '#c3bfb7'],
+    ['geplant', tr('Geplant'), '#f59a23'], ['problem', tr('Problem'), '#e5484d'], ['rohstoff', tr('Rohstoff'), '#4cc38a'],
+    ['treffpunkt', tr('Treffpunkt'), '#5b9bd5'], ['notiz', tr('Notiz'), '#c3bfb7'],
   ];
   const isFactory = !!pin.factory;
   let text = $state(isFactory ? pin.factory.name : pin.text || '');
   let fstatus = $state(isFactory ? pin.factory.status || 'aktiv' : 'aktiv');
   const FST: [string, string, string][] = [
-    ['aktiv', 'Aktiv', 'Warnungen bei Materialmangel'], ['aufbau', 'Im Aufbau', 'keine Warnungen'],
-    ['puffer', 'Puffer/Vorrat', 'Stillstand gewollt'], ['stillgelegt', 'Stillgelegt', 'keine Warnungen'],
+    ['aktiv', tr('Aktiv'), tr('Warnungen bei Materialmangel')], ['aufbau', tr('Im Aufbau'), tr('keine Warnungen')],
+    ['puffer', tr('Puffer/Vorrat'), tr('Stillstand gewollt')], ['stillgelegt', tr('Stillgelegt'), tr('keine Warnungen')],
   ];
   let cat = $state(pin.cat || 'geplant');
   let pw = $state($password);
@@ -23,29 +24,29 @@
     err = ''; busy = true;
     try {
       if (!$password || pw !== $password) {
-        if (!(await checkPassword(pw))) throw new Error('Das Passwort stimmt nicht. Frag den Betreiber der Karte nach dem aktuellen.');
+        if (!(await checkPassword(pw))) throw new Error(tr('Das Passwort stimmt nicht. Frag den Betreiber der Karte nach dem aktuellen.'));
         password.set(pw);
       }
       author.set(name.trim());
       if (isFactory) await post('factory-name', { key: pin.factory.key, name: text.trim() === pin.factory.auto ? '' : text.trim(), status: fstatus, author: name.trim() });
       else await post('pins', { ...pin, text: text.trim(), cat, color: CATS.find(c => c[0] === cat)![2], author: name.trim() || 'anonym' });
       onclose(true);
-    } catch (e: any) { err = e.message; } finally { busy = false; }
+    } catch (e: any) { err = lxr(e.message); } finally { busy = false; }
   }
   async function del() {
-    if (!confirm('Notiz löschen?')) return;
+    if (!confirm(tr('Notiz löschen?'))) return;
     busy = true;
-    try { await post('pins/' + pin.id + '/delete', {}); onclose(true); } catch (e: any) { err = e.message; } finally { busy = false; }
+    try { await post('pins/' + pin.id + '/delete', {}); onclose(true); } catch (e: any) { err = lxr(e.message); } finally { busy = false; }
   }
 </script>
 
-<div class="modal" role="dialog" aria-modal="true" aria-label={isFactory ? 'Fabrik umbenennen' : 'Notiz'}>
-  <button class="bg" aria-label="Schließen" onclick={() => onclose(false)}></button>
+<div class="modal" role="dialog" aria-modal="true" aria-label={isFactory ? $t('Fabrik umbenennen') : $t('Notiz')}>
+  <button class="bg" aria-label={$t('Schließen')} onclick={() => onclose(false)}></button>
   <form class="panel box" onsubmit={e => { e.preventDefault(); save(); }}>
-    <h2>{isFactory ? 'Fabrik bearbeiten' : pin.id ? 'Notiz bearbeiten' : 'Neue Notiz'}</h2>
+    <h2>{isFactory ? $t('Fabrik bearbeiten') : pin.id ? $t('Notiz bearbeiten') : $t('Neue Notiz')}</h2>
     {#if isFactory}
-      <label>Name<input class="field" bind:value={text} maxlength="60" /></label>
-      <p class="muted small">Automatischer Name: {pin.factory.auto}. Leer lassen stellt ihn wieder her.</p>
+      <label>{$t('Name')}<input class="field" bind:value={text} maxlength="60" /></label>
+      <p class="muted small">{$t('Automatischer Name: {auto}. Leer lassen stellt ihn wieder her.', { auto: $lx(pin.factory.auto) })}</p>
       <div class="cats">
         {#each FST as [k, l, h]}<button type="button" class:on={fstatus === k} onclick={() => (fstatus = k)} title={h}>{l}</button>{/each}
       </div>
@@ -54,18 +55,18 @@
       <div class="cats">
         {#each CATS as [k, l, c]}<button type="button" class:on={cat === k} onclick={() => (cat = k)}><span class="dot" style="background:{c}"></span>{l}</button>{/each}
       </div>
-      <label>Text<textarea class="field" bind:value={text} rows="4" maxlength="500" placeholder="Was soll hier hin?"></textarea></label>
+      <label>{$t('Text')}<textarea class="field" bind:value={text} rows="4" maxlength="500" placeholder={$t('Was soll hier hin?')}></textarea></label>
     {/if}
     <div class="two">
-      <label>Dein Name<input class="field" bind:value={name} maxlength="40" autocomplete="nickname" /></label>
-      <label>Passwort<input class="field" type="password" bind:value={pw} autocomplete="current-password" /></label>
+      <label>{$t('Dein Name')}<input class="field" bind:value={name} maxlength="40" autocomplete="nickname" /></label>
+      <label>{$t('Passwort')}<input class="field" type="password" bind:value={pw} autocomplete="current-password" /></label>
     </div>
     {#if err}<p class="err">{err}</p>{/if}
     <div class="act">
-      {#if pin.id}<button type="button" class="btn" onclick={del} disabled={busy}>Löschen</button>{/if}
+      {#if pin.id}<button type="button" class="btn" onclick={del} disabled={busy}>{$t('Löschen')}</button>{/if}
       <span style="flex:1"></span>
-      <button type="button" class="btn" onclick={() => onclose(false)}>Abbrechen</button>
-      <button class="btn primary" disabled={busy || (!isFactory && !text.trim()) || !pw}>Speichern</button>
+      <button type="button" class="btn" onclick={() => onclose(false)}>{$t('Abbrechen')}</button>
+      <button class="btn primary" disabled={busy || (!isFactory && !text.trim()) || !pw}>{$t('Speichern')}</button>
     </div>
   </form>
 </div>

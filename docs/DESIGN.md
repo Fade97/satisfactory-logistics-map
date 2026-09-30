@@ -1,53 +1,53 @@
-# Design — Logistikkarte v2 („FICSIT-Look“)
+# Design — Logistics Map v2 ("FICSIT look")
 
-Vorgabe (29.09.2026): an die Spiel-UI angelehnt, Orange-Grau, industrielle Typografie; UI deutsch.
+Brief (2026-09-29): modeled on the game UI, orange-grey, industrial typography; UI originally German (now English by default, German optional).
 
-## Idee
-Die Karte ist eine **Leitstandtafel**, kein Dashboard. Vorbild ist das Terminal im HUB: Die Spielkarte
-liegt als Fläche auf warmem Anthrazit, alles Menschengemachte (Gleise, Stationen, Fabriken) sitzt in
-FICSIT-Orange und Signalfarben darauf. Das eine Wiedererkennungsmerkmal sind die **gestanzten Ecken**:
-Panels und Knöpfe haben eine abgeschrägte obere rechte Ecke wie die Spielmenüs. Nur Panels bekommen
-sie, Listenzeilen nicht. Sonst bleibt alles ruhig.
+## Idea
+The map is a **control room panel**, not a dashboard. The model is the terminal in the HUB: the game map
+lies as a surface on warm anthracite, and everything man-made (tracks, stations, factories) sits on top in
+FICSIT orange and signal colors. The one distinctive feature is the **punched corners**:
+panels and buttons have a chamfered top right corner like the game menus. Only panels get
+them, list rows do not. Everything else stays calm.
 
-## Farben
-| Name | Hex | Rolle |
+## Colors
+| Name | Hex | Role |
 |---|---|---|
-| Stahl | `#1b1c1e` | Grundfläche, Panels |
-| Blech | `#26282b` | angehobene Flächen, Kopfzeilen |
-| Naht | `#3a3d41` | Trennlinien, Rahmen |
-| FICSIT-Orange | `#f59a23` | Marke, aktive Auswahl, Beladen |
-| Kobalt | `#5b9bd5` | Entladen, Züge, Rohre (das Spiel färbt Flüssiges blau) |
-| Signal | `#e5484d` / `#4cc38a` | Störung / läuft |
-Text: `#e8e6e1` (warmes Weiß), gedämpft `#9a968e`.
+| Steel | `#1b1c1e` | base surface, panels |
+| Sheet metal | `#26282b` | raised surfaces, headers |
+| Seam | `#3a3d41` | dividers, borders |
+| FICSIT orange | `#f59a23` | brand, active selection, loading |
+| Cobalt | `#5b9bd5` | unloading, trains, pipes (the game colors fluids blue) |
+| Signal | `#e5484d` / `#4cc38a` | fault / running |
+Text: `#e8e6e1` (warm white), muted `#9a968e`.
 
-Beladen = Orange und Entladen = Blau ersetzt das alte Grün/Orange: Das ist farbenblind-sicherer und
-passt zur Palette.
+Loading = orange and unloading = blue replace the old green/orange: this is safer for color-blind users and
+fits the palette.
 
-## Schrift
-- **Barlow Condensed** 600/700: Überschriften, Kennzahlen, Navigation. Schmal und technisch wie die
-  Beschriftung im Spiel, in Normalschreibung, nie gesperrt in Versalien.
-- **Barlow** 400/500: Fließtext und Tabellen, `font-variant-numeric: tabular-nums` für Raten.
-Skala: 12 / 14 / 16 / 20 / 28 / 40.
+## Typography
+- **Barlow Condensed** 600/700: headings, key figures, navigation. Narrow and technical like the
+  lettering in the game, in normal case, never letter-spaced capitals.
+- **Barlow** 400/500: body text and tables, `font-variant-numeric: tabular-nums` for rates.
+Scale: 12 / 14 / 16 / 20 / 28 / 40.
 
 ## Layout
 ```
-Desktop                                          Handy
+Desktop                                          Phone
 ┌──────────────────────────────────────────┐    ┌──────────────┐
-│ ▌FICSIT  Karte Produktion Strom Logistik …│    │ ▌ Karte   ◉ ⋯│
+│ ▌FICSIT  Map Production Power Logistics …│    │ ▌ Map     ◉ ⋯│
 ├────────┬─────────────────────────┬───────┤    │              │
-│ Suche  │                         │Detail │    │    Karte     │
-│ Liste  │        KARTE            │ (bei  │    │              │
-│        │                         │Auswahl)│   ├──────────────┤
-│        │               [Ebenen]  │       │    │ Bottom Sheet │
+│ Search │                         │Detail │    │     Map      │
+│ List   │           MAP           │ (on   │    │              │
+│        │                         │select)│    ├──────────────┤
+│        │               [Layers]  │       │    │ Bottom sheet │
 ├────────┴─────────────────────────┴───────┤    ├──────────────┤
-│ Ereignis-Leiste (einklappbar)            │    │ Tab-Leiste   │
+│ Event bar (collapsible)                  │    │ Tab bar      │
 └──────────────────────────────────────────┘    └──────────────┘
 ```
-Die anderen Seiten (Produktion, Strom, Logistik, Verlauf) sind linksbündige Arbeitsflächen mit Tabellen
-und Diagrammen. Jede Zeile mit Ort springt per Klick zur Karte (`#/karte?sel=…`).
+The other pages (Production, Power, Logistics, History) are left-aligned work areas with tables
+and charts. Every row with a location jumps to the map on click (`#/map?sel=…`).
 
-## Grundsätze
-1. Die Quelle ist immer sichtbar: „live“ (FRM) oder „Save von 22:19“. Nie eine alte Zahl als frisch ausgeben.
-2. Karte zuerst: Jede Liste endet auf der Karte.
-3. Farben tragen Bedeutung (Zustand, Richtung), keine Zier.
-4. Bewegung nur als Antwort: Fahrzeuge gleiten, Panels schieben auf; keine Einblend-Effekte beim Laden.
+## Principles
+1. The source is always visible: "live" (FRM) or "save from 22:19". Never present an old number as fresh.
+2. Map first: every list ends on the map.
+3. Colors carry meaning (status, direction), not decoration.
+4. Motion only as a response: vehicles glide, panels slide open; no fade-in effects on load.

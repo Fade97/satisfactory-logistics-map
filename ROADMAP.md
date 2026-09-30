@@ -1,86 +1,86 @@
-# Logistikkarte — Neuauflage (ab 29.09.2026)
+# Logistics Map — relaunch (from 2026-09-29)
 
-Anforderungen aus der Abfrage vom 29.09.2026. Reihenfolge = Bauplan, jeder Block geht fertig live.
+Requirements from the survey on 2026-09-29. Order = build plan; each block goes live when finished.
 
-## Rahmen
-| Thema | Entscheidung |
+## Framework
+| Topic | Decision |
 |---|---|
-| Nutzer | Betreiber am zweiten Monitor, Mitspieler, Planung am Handy — alle Seiten voll mobil |
-| Datenquelle | **Gemischt**: FRM bevorzugt, bei Ausfall automatisch Save (alle 5 min) |
-| Unterbau | Python-Backend (stdlib/SQLite) + **Svelte/Vite**-Frontend, Karte als **eigener Canvas/WebGL-Renderer** |
-| Layout | Karte = Startseite, dazu Seiten Produktion · Strom · Logistik · Verlauf; Klick springt zur Karte |
-| Design | **FICSIT-Look**: Orange/Grau, industrielle Typografie |
-| Sprache | UI deutsch, Waren/Gebäude englisch |
-| Sichtbarkeit | alles öffentlich lesbar; Schreiben (Pins, Fabriknamen) mit gemeinsamem Passwort |
-| Server | nur lesen; jede Änderung am Gameserver vorher absprechen, **keine Neustarts** |
-| Rezeptdaten | öffentlicher Community-Datensatz, gegen Rezeptpfade im Save abgeglichen |
-| Umstieg | neue Seite ersetzt die alte direkt; Rollback über git |
-| Abnahme | nach jedem Block live deployen + kurze Notiz mit Screenshot |
+| Users | operator on the second monitor, other players, planning on the phone — all pages fully mobile |
+| Data source | **Mixed**: FRM preferred, automatic fallback to the save (every 5 min) |
+| Stack | Python backend (stdlib/SQLite) + **Svelte/Vite** frontend, map as a **custom canvas/WebGL renderer** |
+| Layout | map = start page, plus the pages Production · Power · Logistics · History; a click jumps to the map |
+| Design | **FICSIT look**: orange/grey, industrial typography |
+| Language | UI German, items/buildings English (now: UI English by default, German optional) |
+| Visibility | everything publicly readable; writing (pins, factory names) with a shared password |
+| Server | read-only; agree on every change to the game server beforehand, **no restarts** |
+| Recipe data | public community dataset, matched against the recipe paths in the save |
+| Switchover | the new site replaces the old one directly; rollback via git |
+| Acceptance | deploy live after each block + short note with a screenshot |
 
-## Blöcke
-1. **Robustheit** — FRM-Hänger erkennen und anzeigen, Save-Fallback für Maschinen/Netz, SQLite-Verlauf
-   (1 min → 48 h, Stundenmittel → 90 Tage, Tageswerte für immer), Ereignisse ab sofort sammeln.
-2. **Produktion** — Warenbilanz (Soll/Ist je Ware), stehende Maschinen mit Grund + seit wann (Liste + Heatmap),
-   Fabrik-Cluster automatisch (Nähe + Bänder), umbenennbar; Rohstoffknoten mit Reinheit/belegt/Extraktor.
-3. **Strom** — Netzübersicht (Erzeugung, Verbrauch, Kapazität, Batterie), Leitungen als Ebene nach Netz gefärbt,
-   Verlauf mit Sicherungsauslösungen, Brennstoff-Reichweite.
-4. **Logistik** — Durchsatz je Route vs. Bedarf, Füllstandsbalken + leer/voll-Warnung, Drohnen, Liniennetzplan.
-5. **Verlauf** — Produktion je Ware, Strom je Netz, Fabrikwachstum, Änderungsprotokoll (neu/abgerissen, Erbauer).
-6. **Live / 2. Monitor** — Folge-Modus (Spieler/Zug/LKW), Ereignis-Feed (Störungen, Versorgung, Spieler, Fortschritt),
-   Live alle 5 s, Kiosk (Karte + Feed, Kennzahlen, rotierende Seiten).
-7. **Mitspieler** — Pins mit Kategorie/Farbe/Autor, Linien/Flächen zeichnen, Erbauer-Filter,
-   Spielerspuren (letzte 2 h); prüfen, ob Pins per FRM als Ingame-Marker gehen (unsicher).
+## Blocks
+1. **Robustness** — detect and show FRM hangs, save fallback for machines/grid, SQLite history
+   (1 min → 48 h, hourly averages → 90 days, daily values forever), collect events from now on.
+2. **Production** — item balance (target/actual per item), stopped machines with reason + since when (list + heatmap),
+   factory clusters automatically (proximity + belts), renamable; resource nodes with purity/occupied/extractor.
+3. **Power** — grid overview (production, consumption, capacity, battery), power lines as a layer colored by grid,
+   history with fuse trips, fuel range.
+4. **Logistics** — throughput per route vs. demand, fill level bars + empty/full warning, drones, network diagram.
+5. **History** — production per item, power per grid, factory growth, change log (new/dismantled, builder).
+6. **Live / 2nd monitor** — follow mode (player/train/truck), event feed (faults, supply, players, progress),
+   live every 5 s, kiosk (map + feed, key figures, rotating pages).
+7. **Other players** — pins with category/color/author, draw lines/areas, builder filter,
+   player trails (last 2 h); check whether pins can become in-game markers via FRM (uncertain).
 
-Keine Push-Benachrichtigungen — Ereignisse nur in der Karte.
+No push notifications — events only in the map.
 
-## Stand 29.09.2026 (erster Durchgang, live)
-| Block | Stand | Offen |
+## Status 2026-09-29 (first pass, live)
+| Block | Status | Open |
 |---|---|---|
-| 1 Robustheit | Save-Fallback, Quellenanzeige, SQLite-Verlauf, Ereignisse, Pterodactyl-Neustart 00:10 UTC, Issue-Entwurf | FRM-Pfad (`frm_factory`) erst nach dem ersten Neustart live geprüft |
-| 2 Produktion | Warenbilanz, stehende Maschinen mit Grund, Fabrik-Cluster (umbenennbar), Rohstoffknoten | Heatmap statt Punkt-Ebene; Cluster auch über Band-Verbindungen |
-| 3 Strom | Netzübersicht, Leitungen nach Netz, Verlauf, Brennstoff-Reichweite + -Bilanz | Sicherungsauslösungen nur mit FRM |
-| 4 Logistik | Truck-Durchsatz (Obergrenze), Füllstände + Warnung, Liniennetzplan, Fahrzeugliste | Drohnen (keine vorhanden), echter Zugdurchsatz |
-| 5 Verlauf | Produktion je Ware, Maschinenzustand, Wachstum, Änderungsprotokoll mit Erbauer | Erbauer oft unbekannt (PlayerInfoHandle nicht eindeutig) |
-| 6 Live | Live alle 5 s, Folge-Modus, Ereignis-Feed, Kiosk (`#/kiosk?folge=<Spieler>&rotate=30`) | – |
-| 7 Mitspieler | Notizen (Punkt/Linie/Fläche, Kategorie, Autor), Spielerspuren 2 h | Ingame: FRM kann nur `createPing`, keine Marker |
+| 1 Robustness | save fallback, source indicator, SQLite history, events, Pterodactyl restart 00:10 UTC, issue draft | FRM path (`frm_factory`) only verified live after the first restart |
+| 2 Production | item balance, stopped machines with reason, factory clusters (renamable), resource nodes | heatmap instead of a point layer; clusters also via belt connections |
+| 3 Power | grid overview, power lines by grid, history, fuel range + balance | fuse trips only with FRM |
+| 4 Logistics | truck throughput (upper bound), fill levels + warning, network diagram, vehicle list | drones (none present), real train throughput |
+| 5 History | production per item, machine status, growth, change log with builder | builder often unknown (PlayerInfoHandle not unique) |
+| 6 Live | live every 5 s, follow mode, event feed, kiosk (`#/kiosk?follow=<player>&rotate=30`) | – |
+| 7 Other players | notes (point/line/area, category, author), player trails 2 h | in-game: FRM can only `createPing`, no markers |
 
-## Runde 2 (30.09.2026)
-Antworten: Karte war nach Seitenwechsel leer (behoben) · „Ausgang voll“ ist normal → leise · Stillstand als Heatmap **und**
-Fabrik-Umriss · Fabriken über Förderbänder trennen · vollwertiger Produktionsrechner (nur freigeschaltete Rezepte,
-wenig Rohstoffe, Überschüsse nutzen, Diagramm + Bauliste + freie Knoten + als Notiz) · Stahl-Stillstand war unbekannt →
-Hinweise prominent · Fabrik-Status (aktiv/Aufbau/Puffer/stillgelegt) · Startseite = Lage-Übersicht.
+## Round 2 (2026-09-30)
+Answers: the map was empty after switching pages (fixed) · "Output full" is normal → quiet · stoppage as a heatmap **and**
+factory outline · separate factories via conveyor belts · full production planner (only unlocked recipes,
+few resources, use surplus, diagram + build list + free nodes + as a note) · the steel stoppage went unnoticed →
+make hints prominent · factory status (active/under construction/buffer/decommissioned) · start page = Overview.
 
-FRM-Pfad nach dem Neustart 02:10 geprüft: läuft; Extraktoren fehlten in `getFactory` (behoben über `getExtractor`).
+FRM path verified after the 02:10 restart: works; extractors were missing from `getFactory` (fixed via `getExtractor`).
 
-## Runde 3 (30.09.2026)
-Fuzzy-Suche überall · Kettendiagramm neu (Layout, Baum) · Pausen nicht aufzeichnen, Lücken in Diagrammen ·
-Warenfluss auf der Karte (Ware wählen → Erzeuger, Verbraucher, Stationen, Bänder/Rohre aus dem Save) ·
-Rechner: Ziel Rohstoffe/Maschinen/Strom, Rezepte je Ware wählen, Takt bis 250 % (Shards), Somersloops,
-Bauplatz per Kartenklick · „Meine Ansicht“ je Browser (ich bin, Karte folgt mir, Startseite, letzte Kartenposition) ·
-Ereignisse mit Hysterese und 2-h-Sperre (Fabriken nahe der Schwelle meldeten sich alle paar Minuten).
+## Round 3 (2026-09-30)
+Fuzzy search everywhere · new chain diagram (layout, tree) · do not record pauses, gaps in charts ·
+item flow on the map (choose an item → producers, consumers, stations, belts/pipes from the save) ·
+planner: optimize for resources/machines/power, choose recipes per item, clock up to 250 % (shards), Somersloops,
+build site via map click · "My view" per browser (I am, map follows me, start page, last map position) ·
+events with hysteresis and a 2 h cooldown (factories near the threshold reported every few minutes).
 
-## Runde 4 (30.09.2026)
-Tests (`make check`: pytest, vitest, Rauchtest aller Seiten auf Desktop und Handy) · Höhenfilter mit erkannten Etagen ·
-Messen (Strecke, Fläche, Fundamente, Gleis-/Bandstücke) · Maschinen ohne Stromanschluss (Karte, Strom, Lage, Ereignis) ·
-echter Zugdurchsatz aus Ladungsänderungen angedockter Züge (`/api/train-flow`) · 3D-Ansicht je Fabrik (three.js, nachgeladen) ·
-deutsche Warennamen zuschaltbar (Suche findet beide Sprachen).
+## Round 4 (2026-09-30)
+Tests (`make check`: pytest, vitest, smoke test of all pages on desktop and phone) · height filter with detected floors ·
+measure (distance, area, foundations, rail/belt pieces) · machines not connected to power (map, Power, Overview, event) ·
+real train throughput from cargo changes of docked trains (`/api/train-flow`) · 3D view per factory (three.js, lazy-loaded) ·
+German item names optional (search finds both languages).
 
-## Runde 5 (30.09.2026)
-Sammelobjekte als Ebenen (fehlende Somersloops, Mercer Spheres, Power Slugs, offene Absturzstellen; Zähler) ·
-Lager-Übersicht je Ware + „Lager voll, Fabrik staut“ · AWESOME Sink (Coupons, Punkte/min, Fortschritt) ·
-Fahrplan-Prüfung (Kapazität je Route vs. Bedarf der Fabrik an den Entladestationen, Zug-Rundenzeit gemessen) ·
-Blueprint aus dem Rechner (experimentell, nur Constructor/Smelter, auf Basis der Spieler-Vorlagen).
+## Round 5 (2026-09-30)
+Collectibles as layers (missing Somersloops, Mercer Spheres, Power Slugs, unopened crash sites; counters) ·
+storage overview per item + "storage full, factory backed up" · AWESOME Sink (coupons, points/min, progress) ·
+schedule check (capacity per route vs. demand of the factory at the unloading stations, train round-trip time measured) ·
+blueprint from the planner (experimental, only Constructor/Smelter, based on players' templates).
 
-Offen: Blueprint im Spiel testen; weitere Vorlagen (Assembler/Foundry/Manufacturer) aus Spieler-Blueprints; Zug-Rundenzeiten füllen sich erst mit Spielbetrieb.
+Open: test the blueprint in the game; more templates (Assembler/Foundry/Manufacturer) from player blueprints; train round-trip times only fill up with gameplay.
 
-## Runde 6 (30.09.2026)
-Backend in Module (`mapsvc/`), Karte in Komponenten (`lib/map/`) · Zeitreise (Minutenbilder 24 h, Zeitschieber, Lücken markiert) ·
-PWA (installierbar, offline mit letztem Stand, ehrliche Offline-Anzeige) · Detailebene statt Kartenkacheln: Fundamente und Wände
-aus dem Save (83 k Leichtbau-Objekte, 180 KB) — höher aufgelöste Spielkarten gibt es nicht mit sauberer Lizenz.
+## Round 6 (2026-09-30)
+Backend split into modules (`mapsvc/`), map into components (`lib/map/`) · time travel (minute snapshots 24 h, time slider, gaps marked) ·
+PWA (installable, offline with the last known state, honest offline indicator) · detail layer instead of map tiles: foundations and walls
+from the save (83 k lightweight objects, 180 KB) — higher-resolution game maps are not available with a clean license.
 
-## Runde 7 (30.09.2026) — teilbar
-Docker-Paket (`docker compose up -d`, `.env.example`) · Save-Quelle einstellbar: Ordner, SFTP, FTP/FTPS, Server-API
-(`mapsvc/source.py`) · FRM optional (`FRM_URL` leer = aus) · Titel aus dem Sessionnamen · Einrichtungs-Hinweis ohne Save ·
-v1-Karte entfernt, Blueprints nach `blueprints/`, Vorlagen nach `gamedata/templates/` · README neu, `docs/FRM.md`,
-`docs/BLUEPRINTS.md`, MIT-Lizenz + `THIRD_PARTY.md` · Fehler behoben: Karte schnell verlassen → verzögertes
-Adress-Update schickte zurück auf die Karte.
+## Round 7 (2026-09-30) — shareable
+Docker package (`docker compose up -d`, `.env.example`) · configurable save source: folder, SFTP, FTP/FTPS, server API
+(`mapsvc/source.py`) · FRM optional (`FRM_URL` empty = off) · title from the session name · setup hint without a save ·
+v1 map removed, blueprints moved to `blueprints/`, templates to `gamedata/templates/` · new README, `docs/FRM.md`,
+`docs/BLUEPRINTS.md`, MIT license + `THIRD_PARTY.md` · bug fixed: leaving the map quickly → a delayed
+address update sent you back to the map.

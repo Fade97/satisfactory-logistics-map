@@ -1,1 +1,1 @@
-Satisfactory-Logistikkarte · [Repository](https://github.com/Fade97/satisfactory-logistikkarte) · [Fehler melden](https://github.com/Fade97/satisfactory-logistikkarte/issues) · Kein offizielles Projekt von Coffee Stain Studios
+Satisfactory Logistics Map · [Repository](https://github.com/Fade97/satisfactory-logistics-map) · [Report a bug](https://github.com/Fade97/satisfactory-logistics-map/issues) · Not an official Coffee Stain Studios project

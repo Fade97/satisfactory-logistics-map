@@ -6,11 +6,12 @@
   import { C, MODE_DE, fmtNum, dur, ago } from '../lib/fmt';
   import type { Station } from '../lib/types';
   import { tn, both } from '../lib/names';
+  import { t, tr, lx, locale } from '../lib/i18n';
 
   let view = $state<'pruef' | 'routen' | 'zug' | 'fuell' | 'lager' | 'plan' | 'fahrzeuge'>('pruef');
   let sched = $state<any[] | null>(null);
   $effect(() => { if (view === 'pruef') fetch('/api/schedule').then(r => r.json()).then(d => (sched = d)); });
-  const VERD: Record<string, [string, string]> = { engpass: ['Engpass', C.bad], knapp: ['knapp', C.warn], ok: ['reicht', C.ok], unbekannt: ['noch nicht gemessen', '#6f6b64'] };
+  const VERD: Record<string, [string, string]> = { engpass: [tr('Engpass'), C.bad], knapp: [tr('knapp'), C.warn], ok: [tr('reicht'), C.ok], unbekannt: [tr('noch nicht gemessen'), '#6f6b64'] };
   const schedSorted = $derived((sched || []).flatMap(r => r.flows.map((f: any) => ({ r, f })))
     .sort((a, b) => ['engpass', 'knapp', 'unbekannt', 'ok'].indexOf(a.f.verdict) - ['engpass', 'knapp', 'unbekannt', 'ok'].indexOf(b.f.verdict)
       || (b.f.need || 0) - (a.f.need || 0)));
@@ -50,7 +51,7 @@
       const stale = r.last > 3 * Math.max(r.round, 60);
       return { ...r, item, name: lv?.name || r.type + ' ' + r.id.split('_').pop(), fuel: lv?.fuel, stale,
                need: item ? bal.get(item)?.cons ?? null : null };
-    }).sort((a, b) => (a.item || '~').localeCompare(b.item || '~', 'de'));
+    }).sort((a, b) => (a.item || '~').localeCompare(b.item || '~', locale()));
   });
 
   const fills = $derived.by(() => {
@@ -58,7 +59,7 @@
     const rows: { s: Station; label: string; fill: number; item: string; mode: string }[] = [];
     for (const s of S.trucks) if (s.fill != null && s.items[0]) rows.push({ s, label: s.name, fill: s.fill, item: s.items[0].item, mode: s.mode });
     for (const s of S.trains) (s.platforms || []).forEach((p, i) => {
-      if (p.fill != null && p.items[0]) rows.push({ s, label: s.name + ' · Gleis ' + (i + 1), fill: p.fill, item: p.items[0].item, mode: p.mode || s.mode });
+      if (p.fill != null && p.items[0]) rows.push({ s, label: s.name + ' · ' + tr('Gleis {n}', { n: i + 1 }), fill: p.fill, item: p.items[0].item, mode: p.mode || s.mode });
     });
     return rows;
   });
@@ -82,11 +83,11 @@
 </script>
 
 <div class="page">
-  <h1>Logistik</h1>
-  <p class="src">{S ? S.trucks.length + ' Truckstationen, ' + S.trains.length + ' Bahnhöfe, ' + S.routes.length + ' Zugfahrpläne · Stand ' + ago($status?.save?.mtime) : 'lädt …'}</p>
+  <h1>{$t('Logistik')}</h1>
+  <p class="src">{S ? $t('{trucks} Truckstationen, {trains} Bahnhöfe, {routes} Zugfahrpläne · Stand {ago}', { trucks: S.trucks.length, trains: S.trains.length, routes: S.routes.length, ago: ago($status?.save?.mtime) }) : $t('lädt …')}</p>
 
   <div class="seg">
-    {#each [['pruef', 'Fahrplan-Prüfung'], ['routen', 'Truck-Routen'], ['zug', 'Zugdurchsatz'], ['fuell', 'Füllstände'], ['lager', 'Lager'], ['plan', 'Liniennetz Zug'], ['fahrzeuge', 'Fahrzeuge']] as [k, l]}
+    {#each [['pruef', $t('Fahrplan-Prüfung')], ['routen', $t('Truck-Routen')], ['zug', $t('Zugdurchsatz')], ['fuell', $t('Füllstände')], ['lager', $t('Lager')], ['plan', $t('Liniennetz Zug')], ['fahrzeuge', $t('Fahrzeuge')]] as [k, l]}
       <button class:on={view === k} onclick={() => (view = k as any)}>{l}</button>
     {/each}
   </div>
@@ -94,72 +95,72 @@
   {#if view === 'pruef'}
     <div class="panel card tbl">
       <table class="t">
-        <thead><tr><th>Route</th><th>Ware</th><th class="n">schafft /min</th><th class="n">Bedarf /min</th><th>Bewertung</th><th class="n hide-m">Runde</th></tr></thead>
+        <thead><tr><th>{$t('Route')}</th><th>{$t('Ware')}</th><th class="n">{$t('schafft /min')}</th><th class="n">{$t('Bedarf /min')}</th><th>{$t('Bewertung')}</th><th class="n hide-m">{$t('Runde')}</th></tr></thead>
         <tbody>
           {#each schedSorted as { r, f }}
             <tr>
-              <td>{r.name}<div class="muted small">{r.kind === 'zug' ? 'Zug · ' + r.wagons + ' Wagen' : 'Truck'} · {r.stops.join(' → ')}</div></td>
+              <td>{r.name}<div class="muted small">{r.kind === 'zug' ? $t('Zug · {n} Wagen', { n: r.wagons }) : $t('Truck')} · {r.stops.join(' → ')}</div></td>
               <td>{$tn(f.item)}</td>
-              <td class="n">{f.cap != null ? fmtNum(f.cap) : '–'}{#if f.moved}<div class="muted small">gemessen {fmtNum(f.moved)}</div>{/if}</td>
+              <td class="n">{f.cap != null ? fmtNum(f.cap) : '–'}{#if f.moved}<div class="muted small">{$t('gemessen {n}', { n: fmtNum(f.moved) })}</div>{/if}</td>
               <td class="n">{f.need != null ? fmtNum(f.need) : '–'}</td>
               <td><span class="tag" style="color:{VERD[f.verdict][1]};border-color:{VERD[f.verdict][1]}55">{VERD[f.verdict][0]}</span>
-                {#if f.verdict === 'engpass' && f.cap}<div class="muted small">{Math.ceil(f.need / f.cap)}× so viele Fahrzeuge oder kürzere Runde nötig</div>{/if}</td>
+                {#if f.verdict === 'engpass' && f.cap}<div class="muted small">{$t('{n}× so viele Fahrzeuge oder kürzere Runde nötig', { n: Math.ceil(f.need / f.cap) })}</div>{/if}</td>
               <td class="n hide-m">{r.round ? dur(r.round / 60) : '–'}</td>
             </tr>
-          {:else}<tr><td colspan="6" class="muted">lädt …</td></tr>{/each}
+          {:else}<tr><td colspan="6" class="muted">{$t('lädt …')}</td></tr>{/each}
         </tbody>
       </table>
-      <p class="muted small"><b>Schafft</b> = volle Ladung je Runde ÷ Rundenzeit (Obergrenze). <b>Bedarf</b> = Soll-Verbrauch der Maschinen im Umkreis von 250 m um die Entladestationen.
-        Zug-Rundenzeiten werden aus den Live-Daten gemessen (Ankunft am ersten Halt bis zur nächsten) — „noch nicht gemessen“ füllt sich, sobald Züge fahren.</p>
+      <p class="muted small"><b>{$t('Schafft')}</b> {$t('= volle Ladung je Runde ÷ Rundenzeit (Obergrenze).')} <b>{$t('Bedarf')}</b> {$t('= Soll-Verbrauch der Maschinen im Umkreis von 250 m um die Entladestationen.')}
+        {$t('Zug-Rundenzeiten werden aus den Live-Daten gemessen (Ankunft am ersten Halt bis zur nächsten) — „noch nicht gemessen“ füllt sich, sobald Züge fahren.')}</p>
     </div>
   {:else if view === 'routen'}
     <div class="panel card tbl">
       <table class="t">
-        <thead><tr><th>Fahrzeug</th><th>Ware</th><th>Stationen</th><th class="n">Runde</th><th class="n">bis /min</th><th class="n hide-m">Verbrauch /min</th></tr></thead>
+        <thead><tr><th>{$t('Fahrzeug')}</th><th>{$t('Ware')}</th><th>{$t('Stationen')}</th><th class="n">{$t('Runde')}</th><th class="n">{$t('bis /min')}</th><th class="n hide-m">{$t('Verbrauch /min')}</th></tr></thead>
         <tbody>
           {#each routes as r (r.id)}
             <tr>
-              <td>{r.name}<div class="muted small">{r.type}{r.fuel === false ? ' · kein Treibstoff' : ''}{r.stale ? ' · seit ' + dur(r.last / 60) + ' nicht angedockt' : ''}</div></td>
+              <td>{r.name}<div class="muted small">{r.type}{r.fuel === false ? ' · ' + $t('kein Treibstoff') : ''}{r.stale ? ' · ' + $t('seit {t} nicht angedockt', { t: dur(r.last / 60) }) : ''}</div></td>
               <td>{$tn(r.item) || '—'}</td>
               <td>{#each r.stops as s}<button class="lk" onclick={() => go(s)}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>{/each}</td>
               <td class="n">{dur(r.round / 60)}</td>
               <td class="n">{r.per_min ? fmtNum(r.per_min) : '—'}</td>
               <td class="n hide-m muted">{r.need != null ? fmtNum(r.need) : '—'}</td>
             </tr>
-          {:else}<tr><td colspan="6" class="muted">Keine Truck-Routen im Save.</td></tr>{/each}
+          {:else}<tr><td colspan="6" class="muted">{$t('Keine Truck-Routen im Save.')}</td></tr>{/each}
         </tbody>
       </table>
-      <p class="muted small">„bis /min“ = volle Ladung ÷ Rundenzeit, also die Obergrenze. Wie voll ein Fahrzeug tatsächlich fährt, steht nicht im Save.
-        „Verbrauch“ = was alle Maschinen der Fabrik von dieser Ware verbrauchen.</p>
+      <p class="muted small">{$t('„bis /min“ = volle Ladung ÷ Rundenzeit, also die Obergrenze. Wie voll ein Fahrzeug tatsächlich fährt, steht nicht im Save.')}
+        {$t('„Verbrauch“ = was alle Maschinen der Fabrik von dieser Ware verbrauchen.')}</p>
     </div>
 
   {:else if view === 'zug'}
     <div class="seg small">
-      {#each [[6, '6 h'], [24, '24 h'], [168, '7 Tage']] as [h, l]}<button class:on={flowH === h} onclick={() => (flowH = +h)}>{l}</button>{/each}
+      {#each [[6, '6 h'], [24, '24 h'], [168, $t('7 Tage')]] as [h, l]}<button class:on={flowH === h} onclick={() => (flowH = +h)}>{l}</button>{/each}
     </div>
     <div class="panel card tbl">
       <table class="t">
-        <thead><tr><th>Bahnhof</th><th>Ware</th><th class="n">beladen /min</th><th class="n">entladen /min</th></tr></thead>
+        <thead><tr><th>{$t('Bahnhof')}</th><th>{$t('Ware')}</th><th class="n">{$t('beladen /min')}</th><th class="n">{$t('entladen /min')}</th></tr></thead>
         <tbody>
-          {#each Object.entries(trainFlow?.stations || {}).sort((a, b) => a[0].localeCompare(b[0], 'de')) as [st, items]}
+          {#each Object.entries(trainFlow?.stations || {}).sort((a, b) => a[0].localeCompare(b[0], locale())) as [st, items]}
             {#each Object.entries(items) as [it, v], i}
               <tr class:click={i === 0} onclick={() => { const s = S?.trains.find(x => x.name === st); if (s) go(s); }}>
                 <td>{i === 0 ? st : ''}</td><td>{$tn(it)}</td>
                 <td class="n">{v['+'] ? fmtNum(v['+']) : '–'}</td><td class="n">{v['-'] ? fmtNum(v['-']) : '–'}</td></tr>
             {/each}
           {:else}
-            <tr><td colspan="4" class="muted">Noch keine Messwerte. Der Durchsatz wird ab jetzt aus den Live-Daten gezählt, wenn ein Zug an einem Bahnhof steht und sich seine Ladung ändert — die Tabelle füllt sich, sobald jemand spielt (bei pausiertem Server fahren keine Züge).</td></tr>
+            <tr><td colspan="4" class="muted">{$t('Noch keine Messwerte. Der Durchsatz wird ab jetzt aus den Live-Daten gezählt, wenn ein Zug an einem Bahnhof steht und sich seine Ladung ändert — die Tabelle füllt sich, sobald jemand spielt (bei pausiertem Server fahren keine Züge).')}</td></tr>
           {/each}
         </tbody>
       </table>
-      <p class="muted small">Gemessen, nicht geschätzt: Ladungsänderung angedockter Züge zwischen zwei Live-Abfragen (alle 5 s), gemittelt über den gewählten Zeitraum inklusive Pausen der Züge.</p>
+      <p class="muted small">{$t('Gemessen, nicht geschätzt: Ladungsänderung angedockter Züge zwischen zwei Live-Abfragen (alle 5 s), gemittelt über den gewählten Zeitraum inklusive Pausen der Züge.')}</p>
     </div>
   {:else if view === 'lager'}
-    <div class="lh2"><input class="field" style="max-width:280px" type="search" bind:value={lagerQ} placeholder="Ware filtern, z. B. Schrauben" />
-      <span class="muted small">{($storage || []).length} Container und Tanks · {empty} leer · {($storage || []).filter(c => (c.fill ?? 0) > .98).length} voll</span></div>
+    <div class="lh2"><input class="field" style="max-width:280px" type="search" bind:value={lagerQ} placeholder={$t('Ware filtern, z. B. Schrauben')} />
+      <span class="muted small">{$t('{n} Container und Tanks · {empty} leer · {full} voll', { n: ($storage || []).length, empty, full: ($storage || []).filter(c => (c.fill ?? 0) > .98).length })}</span></div>
     <div class="panel card tbl">
       <table class="t">
-        <thead><tr><th>Ware</th><th class="n">Bestand</th><th class="n">Lager</th><th class="n">davon voll</th></tr></thead>
+        <thead><tr><th>{$t('Ware')}</th><th class="n">{$t('Bestand')}</th><th class="n">{$t('Lager')}</th><th class="n">{$t('davon voll')}</th></tr></thead>
         <tbody>
           {#each lager as e (e.item)}
             <tr class="click" onclick={() => (lagerOpen = lagerOpen === e.item ? null : e.item)}>
@@ -169,28 +170,28 @@
                 {#each e.list.sort((a, b) => (b.fill ?? 0) - (a.fill ?? 0)) as c}
                   <button class="lk" onclick={() => toMap('', c.pos[0], c.pos[1])}>
                     <span class="bar mini"><i style="width:{(c.fill ?? 0) * 100}%;background:{(c.fill ?? 0) > .98 ? C.bad : '#c3bfb7'}"></i></span>
-                    {fmtNum(c.items.find((i: any) => i.item === e.item)?.amount)} · {c.cls.includes('Tank') ? 'Tank' : 'Container'} · {c.pos[0]} / {c.pos[1]} · {c.z} m</button>
+                    {fmtNum(c.items.find((i: any) => i.item === e.item)?.amount)} · {c.cls.includes('Tank') ? $t('Tank') : $t('Container')} · {c.pos[0]} / {c.pos[1]} · {c.z} m</button>
                 {/each}
               </div></td></tr>
             {/if}
           {/each}
         </tbody>
       </table>
-      <p class="muted small">Stand des letzten Saves. Ein volles Lager meldet sich nur, wenn davor Maschinen stauen — ein volles Endlager ohne Zulauf ist gewollt.</p>
+      <p class="muted small">{$t('Stand des letzten Saves. Ein volles Lager meldet sich nur, wenn davor Maschinen stauen — ein volles Endlager ohne Zulauf ist gewollt.')}</p>
     </div>
   {:else if view === 'fuell'}
     {#if problems.length}
-      <div class="panel card warnbox"><h2>Braucht Aufmerksamkeit</h2>
+      <div class="panel card warnbox"><h2>{$t('Braucht Aufmerksamkeit')}</h2>
         {#each problems as p}
           <button class="lk" onclick={() => go(p.s)}><span class="dot" style="background:{C.bad}"></span>{p.label}
-            <span class="muted">{p.mode === 'load' ? 'fast voll: Abholung reicht nicht' : 'leer: Anlieferung reicht nicht'} · {$tn(p.item)}</span></button>
+            <span class="muted">{p.mode === 'load' ? $t('fast voll: Abholung reicht nicht') : $t('leer: Anlieferung reicht nicht')} · {$tn(p.item)}</span></button>
         {/each}
       </div>
     {/if}
     <div class="fills">
       {#each fills.sort((a, b) => b.fill - a.fill) as r}
         <button class="fr" onclick={() => go(r.s)}>
-          <span class="nm">{r.label}<span class="muted small">{MODE_DE[r.mode]} · {$tn(r.item)}</span></span>
+          <span class="nm">{r.label}<span class="muted small">{MODE_DE[r.mode] ? $t(MODE_DE[r.mode]) : r.mode} · {$tn(r.item)}</span></span>
           <span class="bar"><i style="width:{r.fill * 100}%;background:{(r.mode === 'load' && r.fill > .9) || (r.mode === 'unload' && r.fill < .05) ? C.bad : C[r.mode as 'load'] || '#c3bfb7'}"></i></span>
           <span class="num">{Math.round(r.fill * 100)} %</span>
         </button>
@@ -202,40 +203,40 @@
       <div class="panel card">
         {#each plan.lines as l}
           <div class="line">
-            <div class="lh"><span class="lbadge" style="background:{l.color}">{l.r.name}</span>{#if !l.r.self_driving}<span class="muted small">Autopilot aus</span>{/if}</div>
+            <div class="lh"><span class="lbadge" style="background:{l.color}">{l.r.name}</span>{#if !l.r.self_driving}<span class="muted small">{$t('Autopilot aus')}</span>{/if}</div>
             <div class="track" style="--c:{l.color}">
               {#each l.stops as s, i}
                 <button class="stop" class:shared={s.shared} onclick={() => s.st && go(s.st)}>
                   <span class="node"></span>
                   <span class="sn">{s.name}</span>
-                  {#if trainAt(s.ident).length}<span class="tr">▶ Zug hier</span>{/if}
+                  {#if trainAt(s.ident).length}<span class="tr">▶ {$t('Zug hier')}</span>{/if}
                 </button>
               {/each}
-              <span class="loop" title="Fahrplan beginnt wieder am Anfang">↺</span>
+              <span class="loop" title={$t('Fahrplan beginnt wieder am Anfang')}>↺</span>
             </div>
           </div>
-        {:else}<p class="muted">Keine Zugfahrpläne mit mindestens zwei Halten.</p>{/each}
-        <p class="muted small">Umrandete Halte werden von mehreren Linien angefahren. Die Reihenfolge ist die des Fahrplans, nicht der Streckenverlauf.</p>
+        {:else}<p class="muted">{$t('Keine Zugfahrpläne mit mindestens zwei Halten.')}</p>{/each}
+        <p class="muted small">{$t('Umrandete Halte werden von mehreren Linien angefahren. Die Reihenfolge ist die des Fahrplans, nicht der Streckenverlauf.')}</p>
       </div>
     {/if}
 
   {:else}
     <div class="panel card tbl">
       <table class="t">
-        <thead><tr><th>Name</th><th>Typ</th><th>Zustand</th><th class="n">Tempo</th><th class="hide-m">Ladung</th></tr></thead>
+        <thead><tr><th>{$t('Name')}</th><th>{$t('Typ')}</th><th>{$t('Zustand')}</th><th class="n">{$t('Tempo')}</th><th class="hide-m">{$t('Ladung')}</th></tr></thead>
         <tbody>
-          {#each [...($live?.trains || []).map(t => ({ ...t, typ: 'Zug', k: 'train:' + t.name })), ...($live?.trucks || []).map(t => ({ ...t, typ: t.type, k: 'truck:' + (t.id || t.name) }))] as v}
+          {#each [...($live?.trains || []).map(t => ({ ...t, typ: tr('Zug'), k: 'train:' + t.name })), ...($live?.trucks || []).map(t => ({ ...t, typ: t.type, k: 'truck:' + (t.id || t.name) }))] as v}
             <tr class="click" onclick={() => toMap(v.k, v.pos[0] / 100, v.pos[1] / 100)}>
               <td>{v.name}</td><td>{v.typ}</td>
-              <td>{(v as any).derailed ? '⚠ entgleist' : (v as any).fuel === false ? '⚠ kein Treibstoff' : (v as any).status || ((v as any).autopilot ? 'Autopilot' : '—')}</td>
+              <td>{(v as any).derailed ? '⚠ ' + $t('entgleist') : (v as any).fuel === false ? '⚠ ' + $t('kein Treibstoff') : (v as any).status ? $lx((v as any).status) : ((v as any).autopilot ? $t('Autopilot') : '—')}</td>
               <td class="n">{v.speed != null ? fmtNum(v.speed) + ' km/h' : '—'}</td>
               <td class="hide-m">{(v as any).cargo ? $tn((v as any).cargo.item) + ' ' + fmtNum((v as any).cargo.amount) : (v as any).payload ? fmtNum((v as any).payload) + ' t' : '—'}</td>
             </tr>
           {/each}
         </tbody>
       </table>
-      {#if $live?.source === 'save'}<p class="muted small">Live-Daten fehlen gerade — Positionen und Ladung stammen aus dem letzten Save.</p>{/if}
-      <p class="muted small">Drohnen: Auf diesem Server gibt es noch keine Drohnenhäfen. Sobald einer gebaut ist, erscheinen sie hier.</p>
+      {#if $live?.source === 'save'}<p class="muted small">{$t('Live-Daten fehlen gerade — Positionen und Ladung stammen aus dem letzten Save.')}</p>{/if}
+      <p class="muted small">{$t('Drohnen: Auf diesem Server gibt es noch keine Drohnenhäfen. Sobald einer gebaut ist, erscheinen sie hier.')}</p>
     </div>
   {/if}
 </div>

@@ -29,19 +29,19 @@ def main():
     ap.add_argument('--bind', default='0.0.0.0')
     ap.add_argument('--no-fetch', action='store_true', help='nur saves/latest.sav lesen, nicht vom Server holen')
     a = ap.parse_args()
-    log('Save-Quelle:', source.describe(), '· FRM:', __import__('frm').BASE or 'aus')
+    log('Save source:', source.describe(), '· FRM:', __import__('frm').BASE or 'off')
     try:
         save_cycle(a.no_fetch)
     except source.SourceError as e:
         ST.save_error = str(e)
-        log('erster Save-Abruf fehlgeschlagen:', e)
+        log('first save fetch failed:', e)
     except Exception:
-        log('erster Save-Lauf fehlgeschlagen:\n' + traceback.format_exc()[-800:])
+        log('first save run failed:\n' + traceback.format_exc()[-800:])
     for fn, args in ((live_loop, ()), (factory_loop, ()), (save_loop, (a.no_fetch,)), (sink_loop, ())):
         threading.Thread(target=fn, args=args, daemon=True).start()
     if not os.path.isdir(DIST):
-        log('Achtung: frontend/dist fehlt — erst bauen (cd frontend && pnpm install && pnpm run build)')
-    log('Logistikkarte auf http://%s:%d' % (a.bind, a.port))
+        log('Warning: frontend/dist missing — build it first (cd frontend && pnpm install && pnpm run build)')
+    log('Logistics map on http://%s:%d' % (a.bind, a.port))
     Server((a.bind, a.port), H).serve_forever()
 
 

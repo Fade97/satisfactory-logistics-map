@@ -19,7 +19,7 @@ class FrmError(Exception):
 
 def get(endpoint, timeout=None):
     if not BASE:
-        raise FrmError('FRM nicht eingerichtet (FRM_URL leer)')
+        raise FrmError('FRM not configured (FRM_URL empty)')
     try:
         with urllib.request.urlopen(BASE + '/' + endpoint.lstrip('/'), timeout=timeout or TIMEOUT) as r:
             return json.loads(r.read().decode('utf-8', 'replace'))
@@ -48,7 +48,7 @@ def _first_item(o, field='Inventory'):
 
 
 def players():
-    return sorted([dict(name=p.get('Name') or '(unbekannt)', pos=_xyz(p),
+    return sorted([dict(name=p.get('Name') or '(unknown)', pos=_xyz(p),
                         online=bool(p.get('Online')), dead=bool(p.get('Dead')),
                         hp=round(float(p.get('PlayerHP') or 0)),
                         speed=round(float(p.get('Speed') or 0), 1), vehicle=None,

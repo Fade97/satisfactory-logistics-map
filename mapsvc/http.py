@@ -41,7 +41,7 @@ class H(http.server.BaseHTTPRequestHandler):
     def _blob(self, name):
         b = ST.get(name)
         if not b:
-            return self._json(dict(error='noch keine Daten'), 503)
+            return self._json(dict(error='no data yet'), 503)
         tag, z, raw = b
         if self.headers.get('If-None-Match') == tag:
             return self._send(304, extra={'ETag': tag, 'Cache-Control': 'no-cache'})
@@ -60,16 +60,16 @@ class H(http.server.BaseHTTPRequestHandler):
         ip, now = self._ip(), time.time()
         FAILS[ip] = [t for t in FAILS[ip] if now - t < 600]
         if len(FAILS[ip]) >= 10:
-            self._json(dict(error='zu viele Fehlversuche, 10 min warten'), 429); return False
+            self._json(dict(error='Too many failed attempts, wait 10 minutes'), 429); return False
         if not pw or not hmac.compare_digest(pw.encode(), got.encode()):
             FAILS[ip].append(now)
-            self._json(dict(error='Passwort falsch'), 403); return False
+            self._json(dict(error='Wrong password'), 403); return False
         return True
 
     def _body(self):
         n = int(self.headers.get('Content-Length') or 0)
         if n > 64000:
-            raise ValueError('zu groß')
+            raise ValueError('too large')
         return json.loads(self.rfile.read(n) or b'{}')
 
     def do_HEAD(self):
@@ -122,7 +122,7 @@ class H(http.server.BaseHTTPRequestHandler):
         except Exception as e:
             log('GET', p, repr(e)[:200])
             try:
-                self._json(dict(error='intern'), 500)
+                self._json(dict(error='internal error'), 500)
             except Exception:
                 pass
 
@@ -143,9 +143,9 @@ class H(http.server.BaseHTTPRequestHandler):
                 g = pin['geom']
                 if not (isinstance(g, list) and 1 <= len(g) <= 200 and all(isinstance(q, list) and len(q) == 2 and
                                                                          all(isinstance(c, (int, float)) for c in q) for q in g)):
-                    return self._json(dict(error='Geometrie ungültig'), 400)
+                    return self._json(dict(error='Invalid geometry'), 400)
                 pin['id'] = DB.pin_save(pin)
-                DB.event('pin', 'info', '%s: Notiz „%s“' % (pin['author'], pin['text'][:60]), ref='pin:%d' % pin['id'], x=g[0][0], y=g[0][1])
+                DB.event('pin', 'info', '%s: note “%s”' % (pin['author'], pin['text'][:60]), ref='pin:%d' % pin['id'], x=g[0][0], y=g[0][1])
                 return self._json(pin)
             if p.startswith('/api/pins/') and p.endswith('/delete'):
                 if not self._auth():
@@ -166,7 +166,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 st = dict(cls=str(b.get('cls')), building=str(b.get('building') or ''), machines=float(b.get('machines') or 0),
                           full_clock=float(b.get('full_clock') or 100), clock=float(b['clock']) if b.get('clock') else None)
                 if not (0 < st['machines'] <= 64) or not (1 <= st['full_clock'] <= 250):
-                    return self._json(dict(error='ungültige Angaben'), 400)
+                    return self._json(dict(error='Invalid input'), 400)
                 try:
                     path, info = bpgen.build(st)
                 except bpgen.BpError as e:
@@ -189,7 +189,7 @@ class H(http.server.BaseHTTPRequestHandler):
             self._json(dict(error='unbekannt'), 404)
         except Exception as e:
             log('POST', p, repr(e)[:200])
-            self._json(dict(error='ungültige Anfrage'), 400)
+            self._json(dict(error='Invalid request'), 400)
 
     TYPES = {'.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json',
              '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp',

@@ -10,6 +10,8 @@ Knoten aus gamedata/resource_nodes.json (aus satisfactory-savegame-prometheus-ex
 import collections, json, math, os, sys
 import sbp, sav, stations
 
+EXTRACT = 'Extracting '                  # Rezeptname von Extraktoren: 'Extracting Iron Ore'
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 GD = json.load(open(os.path.join(HERE, 'gamedata', 'data1.0.json')))
 NODES = json.load(open(os.path.join(HERE, 'gamedata', 'resource_nodes.json')))
@@ -152,12 +154,12 @@ def _reason(S, name, d, rec):
         have = sum(v for k, v in out_inv.items() if k.endswith(p['item']))
         cap = 50 if ITEMS.get(p['item'], {}).get('liquid') else st
         if have >= cap * 0.95:
-            return 'Ausgang voll: ' + ITEMS[p['item']]['name']
+            return 'Output full: ' + ITEMS[p['item']]['name']
     for i in r['ingredients']:
         have = sum(v for k, v in in_inv.items() if k.endswith(i['item']))
         need = i['amount']
         if have < need:
-            return 'fehlt: ' + ITEMS.get(i['item'], {}).get('name', i['item'])
+            return 'Missing: ' + ITEMS.get(i['item'], {}).get('name', i['item'])
     return None
 
 
@@ -194,7 +196,7 @@ def machines(S, circ, who):
                 if node:
                     m['purity'] = PURITY.get(node['purity'])
                 if it in ITEMS:
-                    m['recipe'] = 'Abbau ' + ITEMS[it]['name']
+                    m['recipe'] = EXTRACT + ITEMS[it]['name']
                     m['out'] = [dict(item=ITEMS[it]['name'], max=round(per * clock, 2))]
             elif rec in RECIPES:
                 r = RECIPES[rec]

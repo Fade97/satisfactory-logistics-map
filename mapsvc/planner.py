@@ -16,9 +16,9 @@ def plan(b):
         targets = {planner.item_key(t['item']): float(t['rate']) for t in (b.get('targets') or [])[:8]
                    if 0 < float(t['rate']) <= 100000}
     except (KeyError, ValueError, TypeError):
-        return dict(ok=False, error='Unbekannte Ware oder ungültige Menge')
+        return dict(ok=False, error='Unknown item or invalid amount')
     if not targets:
-        return dict(ok=False, error='Mindestens ein Ziel angeben')
+        return dict(ok=False, error='Add at least one target')
     rec = getattr(ST, 'unlocked', None) or set()
     if not b.get('only_unlocked', True):
         rec = {r for r, R in planner.RECIPES.items() if R['inMachine'] and R['producedIn']}
@@ -33,7 +33,7 @@ def plan(b):
                 except KeyError:
                     pass
     if not PLAN_LOCK.acquire(timeout=10):
-        return dict(ok=False, error='Rechner ausgelastet, gleich nochmal versuchen')
+        return dict(ok=False, error='Planner is busy, try again in a moment')
     try:
         goal = b.get('goal') if b.get('goal') in ('raw', 'machines', 'power') else 'raw'
         clock = min(2.5, max(0.01, float(b.get('max_clock') or 1.0)))

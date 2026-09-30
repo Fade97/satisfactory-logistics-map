@@ -9,8 +9,9 @@ const cache = process.env.HOME + '/.cache/ms-playwright';
 const dir = readdirSync(cache).filter(d => /^chromium-\d+$/.test(d)).sort().pop();
 const b = await chromium.launch({ executablePath: `${cache}/${dir}/chrome-linux64/chrome`, args: ['--no-sandbox'] });
 const CHECKS = [
-  ['lage', '.kpi'], ['karte', 'canvas'], ['produktion', 'table.t'], ['strom', '.net'], ['logistik', 'table.t'],
-  ['verlauf', 'svg, .empty'], ['rechner?item=Iron%20Plate&rate=60', '.node'], ['karte?ware=Iron%20Ore', '.flowbar'], ['kiosk', 'aside'],
+  ['overview', '.kpi'], ['map', 'canvas'], ['production', 'table.t'], ['power', '.net'], ['logistics', 'table.t'],
+  ['history', 'svg, .empty'], ['planner?item=Iron%20Plate&rate=60', '.node'], ['map?item=Iron%20Ore', '.flowbar'], ['kiosk', 'aside'],
+  ['karte?ware=Iron%20Ore', '.flowbar'],   // alte deutsche Adresse muss weiter funktionieren
 ];
 let fail = 0;
 for (const [devName, dev] of [['desktop', { viewport: { width: 1400, height: 900 } }], ['handy', devices['Pixel 7']]]) {
@@ -26,7 +27,7 @@ for (const [devName, dev] of [['desktop', { viewport: { width: 1400, height: 900
     if (!ok) await p.screenshot({ path: `/tmp/smoke-${devName}-${page.split('?')[0]}.png` }).catch(() => {});
     const at = ok ? '' : await p.evaluate(() => location.hash);
     // Karte nach Seitenwechsel wieder da? (Fehler vom 30.09.)
-    if (page === 'produktion') { await p.goto(`${base}/#/karte`); await p.waitForTimeout(1200); }
+    if (page === 'production') { await p.goto(`${base}/#/map`); await p.waitForTimeout(1200); }
     const w = await p.evaluate(() => innerWidth);
     const bad = !ok || errs.length || (devName === 'handy' && w > 420);
     if (bad) fail++;

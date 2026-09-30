@@ -29,10 +29,10 @@ def describe(src=None):
     """Quelle ohne Passwort, für Log und Statusanzeige."""
     src = SOURCE if src is None else src
     if not src:
-        return 'Ordner ' + SAVES
+        return 'folder ' + SAVES
     u = urllib.parse.urlsplit(src)
     if not u.scheme or len(u.scheme) == 1:          # Pfad (auch C:\…)
-        return 'Ordner ' + src
+        return 'folder ' + src
     host = u.hostname or ''
     return '%s://%s%s%s' % (u.scheme, (u.username + '@') if u.username else '', host, (':%d' % u.port) if u.port else '') + (u.path or '')
 
@@ -45,7 +45,7 @@ def fetch_latest(src=None):
         return _dir(src or SAVES)
     fn = {'sftp': _sftp, 'ssh': _sftp, 'ftp': _ftp, 'ftps': _ftp, 'api': _api, 'https': _api}.get(u.scheme)
     if not fn:
-        raise SourceError('unbekannte Save-Quelle %r (erlaubt: Ordner, sftp://, ftp://, ftps://, api://)' % u.scheme)
+        raise SourceError('unknown save source %r (allowed: folder, sftp://, ftp://, ftps://, api://)' % u.scheme)
     return fn(u)
 
 
@@ -64,11 +64,11 @@ def _take(name, mtime, download, version=None):
     if changed and time.time() - mtime < FRESH and os.path.exists(local):
         return local, prev.split('|')[0] or name, os.path.getmtime(local), False
     if changed:
-        log('lade Save', name, '…')
+        log('fetching save', name, '…')
         tmp = local + '.part'
         download(tmp)
         if os.path.getsize(tmp) < 1024:
-            raise SourceError('Save %s ist leer oder unvollständig' % name)
+            raise SourceError('Save %s is empty or incomplete' % name)
         os.replace(tmp, local)
         os.utime(local, (mtime, mtime))
         open(stamp, 'w').write(tag)
@@ -79,7 +79,7 @@ def _newest(entries):
     """entries: [(name, mtime, pfad)] → jüngstes passendes Save."""
     hits = [e for e in entries if fnmatch.fnmatch(e[0], PATTERN) and e[0] != 'latest.sav']
     if not hits:
-        raise SourceError('kein Save (%s) in %s' % (PATTERN, describe()))
+        raise SourceError('no save (%s) in %s' % (PATTERN, describe()))
     return max(hits, key=lambda e: e[1])
 
 
@@ -87,7 +87,7 @@ def _newest(entries):
 def _dir(path):
     path = os.path.expanduser(path)
     if not os.path.isdir(path):
-        raise SourceError('Ordner %s fehlt' % path)
+        raise SourceError('folder %s not found' % path)
     entries = []
     for root, _dirs, files in os.walk(path):
         entries += [(f, os.path.getmtime(os.path.join(root, f)), os.path.join(root, f)) for f in files]
@@ -105,7 +105,7 @@ def _sftp(u):
     try:
         import paramiko
     except ImportError:
-        raise SourceError('SFTP braucht paramiko (pip install paramiko)')
+        raise SourceError('SFTP needs paramiko (pip install paramiko)')
     t = paramiko.Transport((u.hostname, u.port or 22))
     try:
         pkey = paramiko.PKey.from_path(KEY) if KEY else None
@@ -185,16 +185,16 @@ def _call(base, fn, data=None, raw_to=None):
             err = json.loads(e.read()).get('errorCode', '')
         except Exception:
             err = ''
-        raise SourceError('Server-API %s: %s %s' % (fn, e.code, err))
+        raise SourceError('Server API %s: %s %s' % (fn, e.code, err))
     except OSError as e:
-        raise SourceError('Server-API %s nicht erreichbar: %s' % (describe(), e))
+        raise SourceError('Server API %s not reachable: %s' % (describe(), e))
 
 
 def _api(u, retry=True):
     base = 'https://%s:%d/api/v1' % (u.hostname, u.port or 7777)
     if not _token[0]:
         if not PASSWORD:
-            raise SourceError('Server-API braucht SAVE_PASSWORD (Admin-Passwort) oder SAVE_TOKEN')
+            raise SourceError('Server API needs SAVE_PASSWORD (admin password) or SAVE_TOKEN')
         r = _call(base, 'PasswordLogin', {'MinimumPrivilegeLevel': 'Administrator', 'Password': PASSWORD})
         _token[0] = r['data']['authenticationToken']
     try:
@@ -206,18 +206,18 @@ def _api(u, retry=True):
         return _api(u, retry=False)
     sessions = d.get('sessions') or []
     if not sessions:
-        raise SourceError('Server-API: keine Session gefunden')
+        raise SourceError('Server API: no session found')
     cur = sessions[d.get('currentSessionIndex', 0) or 0]
     heads = [h for h in cur.get('saveHeaders') or [] if fnmatch.fnmatch(h['saveName'] + '.sav', PATTERN)]
     if not heads:
-        raise SourceError('Server-API: Session %s hat kein Save' % cur.get('sessionName'))
+        raise SourceError('Server API: session %s has no save' % cur.get('sessionName'))
     h = max(heads, key=lambda h: h.get('saveDateTime', ''))
     mtime = _apitime(h.get('saveDateTime', ''))
 
     def download(dst):
         _call(base, 'DownloadSaveGame', {'SaveName': h['saveName']}, raw_to=dst)
         if not os.path.exists(dst):
-            raise SourceError('Server-API: DownloadSaveGame lieferte keine Datei')
+            raise SourceError('Server API: DownloadSaveGame returned no file')
     return _take(h['saveName'] + '.sav', mtime, download, version=h.get('saveDateTime'))
 
 

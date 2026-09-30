@@ -2,6 +2,7 @@
   // Zeitreise: Minutenbilder der letzten Stunden abspielen. Liefert das gewählte Bild per onframe an die Karte.
   import { onMount, onDestroy } from 'svelte';
   import { clock } from '../fmt';
+  import { t, locale } from '../i18n';
 
   export interface Frame { p: any[]; tr: any[]; tk: any[]; f: any[]; pw: any[] }
   let { onframe, onclose }: { onframe: (t: number | null, f: Frame | null) => void; onclose: () => void } = $props();
@@ -40,27 +41,27 @@
 </script>
 
 <div class="tt panel">
-  <div class="hd"><b>Zeitreise</b>
-    <select class="field sel" bind:value={hours} onchange={load} aria-label="Zeitraum">
+  <div class="hd"><b>{$t('Zeitreise')}</b>
+    <select class="field sel" bind:value={hours} onchange={load} aria-label={$t('Zeitraum')}>
       {#each [[2, '2 h'], [6, '6 h'], [12, '12 h'], [24, '24 h']] as [h, l]}<option value={h}>{l}</option>{/each}
     </select>
-    <span class="muted">{loading ? 'lädt …' : frames.length ? clock(frames[idx][0]) + ' · ' + new Date(frames[idx][0] * 1000).toLocaleDateString('de-DE', { weekday: 'short' }) : ''}</span>
-    <button class="x" onclick={onclose} aria-label="Zeitreise beenden">✕</button>
+    <span class="muted">{loading ? $t('lädt …') : frames.length ? clock(frames[idx][0]) + ' · ' + new Date(frames[idx][0] * 1000).toLocaleDateString(locale(), { weekday: 'short' }) : ''}</span>
+    <button class="x" onclick={onclose} aria-label={$t('Zeitreise beenden')}>✕</button>
   </div>
   {#if frames.length > 1}
     <div class="row">
-      <button class="btn pl" onclick={play} aria-label={playing ? 'Anhalten' : 'Abspielen'}>{playing ? '❚❚' : '▶'}</button>
+      <button class="btn pl" onclick={play} aria-label={playing ? $t('Anhalten') : $t('Abspielen')}>{playing ? '❚❚' : '▶'}</button>
       <div class="track">
-        <input type="range" min="0" max={frames.length - 1} bind:value={idx} oninput={() => { playing = false; clearInterval(timer); emit(); }} aria-label="Zeitpunkt" />
-        {#each gaps as g}<i class="gap" style="left:{(g / (frames.length - 1)) * 100}%" title="Pause/Lücke"></i>{/each}
+        <input type="range" min="0" max={frames.length - 1} bind:value={idx} oninput={() => { playing = false; clearInterval(timer); emit(); }} aria-label={$t('Zeitpunkt')} />
+        {#each gaps as g}<i class="gap" style="left:{(g / (frames.length - 1)) * 100}%" title={$t('Pause/Lücke')}></i>{/each}
       </div>
-      <select class="field sel" bind:value={speed} onchange={() => { if (playing) { playing = false; play(); } }} aria-label="Tempo">
+      <select class="field sel" bind:value={speed} onchange={() => { if (playing) { playing = false; play(); } }} aria-label={$t('Tempo')}>
         {#each [5, 10, 30] as s}<option value={s}>{s}×</option>{/each}
       </select>
     </div>
-    <p class="muted">{clock(frames[0][0])} – {clock(frames[frames.length - 1][0])} · Fabrik-Umrisse zeigen den damaligen Zustand. Live-Daten sind solange angehalten.</p>
+    <p class="muted">{clock(frames[0][0])} – {clock(frames[frames.length - 1][0])} · {$t('Fabrik-Umrisse zeigen den damaligen Zustand. Live-Daten sind solange angehalten.')}</p>
   {:else if !loading}
-    <p class="muted">Noch keine Aufzeichnung. Die Zeitreise speichert jede Minute, solange jemand spielt (der Server pausiert ohne Spieler).</p>
+    <p class="muted">{$t('Noch keine Aufzeichnung. Die Zeitreise speichert jede Minute, solange jemand spielt (der Server pausiert ohne Spieler).')}</p>
   {/if}
 </div>
 

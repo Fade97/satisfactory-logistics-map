@@ -11,14 +11,15 @@
   import Logistics from './Logistics.svelte';
   import EventFeed from '../lib/EventFeed.svelte';
   import { tn } from '../lib/names';
+  import { t, locale } from '../lib/i18n';
 
   const q = $route.q;
   const rotate = +(q.get('rotate') || 0);
   const pages = ['map', 'production', 'power', 'logistics'];
   let idx = $state(0);
-  let t: number;
-  onMount(() => { if (rotate) t = window.setInterval(() => (idx = (idx + 1) % pages.length), rotate * 1000); });
-  onDestroy(() => clearInterval(t));
+  let timer: number;
+  onMount(() => { if (rotate) timer = window.setInterval(() => (idx = (idx + 1) % pages.length), rotate * 1000); });
+  onDestroy(() => clearInterval(timer));
 
   // Fester Spieler aus ?follow=, sonst der erste, der online ist (offline wird nicht verfolgt — MapPage pausiert dann)
   const who = $derived(q.get('follow') || ($live?.players.find(p => p.online === true)?.name ?? ''));
@@ -26,7 +27,7 @@
   const power = $derived((f?.circuits || []).reduce((a, c) => ({ use: a.use + c.use, cap: a.cap + c.cap }), { use: 0, cap: 0 }));
   const stalled = $derived((f?.machines || []).filter(m => m.state === 'steht' && m.block !== 'voll').length);
   const deficit = $derived((f?.balance || []).map(b => ({ item: b.item, net: b.prod - b.cons })).filter(b => b.net < -0.5).sort((a, b) => a.net - b.net).slice(0, 4));
-  const moving = $derived(($live?.trains || []).filter(t => (t.speed || 0) > 5).length);
+  const moving = $derived(($live?.trains || []).filter(z => (z.speed || 0) > 5).length);
   let now = $state(new Date());
   const tick = setInterval(() => (now = new Date()), 10000);
   onDestroy(() => clearInterval(tick));
@@ -41,21 +42,21 @@
   </div>
   <aside>
     <div class="top">
-      <div class="clk num">{now.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}</div>
-      <div class="muted">{$status?.frm.ok ? 'live' : 'aus dem Save'}{$live?.session ? ' · Spielzeit ' + $live.session.clock : ''}</div>
+      <div class="clk num">{now.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}</div>
+      <div class="muted">{$status?.frm.ok ? $t('live') : $t('aus dem Save')}{$live?.session ? ' · ' + $t('Spielzeit {clock}', { clock: $live.session.clock }) : ''}</div>
     </div>
     <div class="tiles">
-      <div class="tile panel"><div class="v num" style="color:{power.cap && power.use / power.cap > .9 ? C.bad : 'inherit'}">{fmtMW(power.use)}</div><div class="l">von {fmtMW(power.cap)} Strom</div></div>
-      <div class="tile panel"><div class="v num" style="color:{stalled ? C.warn : 'inherit'}">{stalled}</div><div class="l">Maschinen mit Materialmangel</div></div>
-      <div class="tile panel"><div class="v num">{moving}/{$live?.trains.length ?? 0}</div><div class="l">Züge unterwegs</div></div>
-      <div class="tile panel"><div class="v num">{($live?.players || []).filter(p => p.online).length}</div><div class="l">Spieler online</div></div>
+      <div class="tile panel"><div class="v num" style="color:{power.cap && power.use / power.cap > .9 ? C.bad : 'inherit'}">{fmtMW(power.use)}</div><div class="l">{$t('von {cap} Strom', { cap: fmtMW(power.cap) })}</div></div>
+      <div class="tile panel"><div class="v num" style="color:{stalled ? C.warn : 'inherit'}">{stalled}</div><div class="l">{$t('Maschinen mit Materialmangel')}</div></div>
+      <div class="tile panel"><div class="v num">{moving}/{$live?.trains.length ?? 0}</div><div class="l">{$t('Züge unterwegs')}</div></div>
+      <div class="tile panel"><div class="v num">{($live?.players || []).filter(p => p.online).length}</div><div class="l">{$t('Spieler online')}</div></div>
     </div>
     {#if deficit.length}
-      <div class="def"><h3>Größter Mangel</h3>
+      <div class="def"><h3>{$t('Größter Mangel')}</h3>
         {#each deficit as d}<div class="dr"><span>{$tn(d.item)}</span><span class="num" style="color:{C.bad}">{fmtNum(d.net)}/min</span></div>{/each}</div>
     {/if}
-    <div class="feed"><h3>Ereignisse</h3><EventFeed compact /></div>
-    <a class="exit" href="#/map">Kiosk verlassen</a>
+    <div class="feed"><h3>{$t('Ereignisse')}</h3><EventFeed compact /></div>
+    <a class="exit" href="#/map">{$t('Kiosk verlassen')}</a>
   </aside>
 </div>
 

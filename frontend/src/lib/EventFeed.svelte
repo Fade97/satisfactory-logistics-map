@@ -2,10 +2,11 @@
   import { events } from './api';
   import { go } from './router';
   import { clock } from './fmt';
+  import { t, tr, lx, locale } from './i18n';
 
   let { onclose = () => {}, compact = false }: { onclose?: () => void; compact?: boolean } = $props();
   const KINDS: Record<string, string> = {
-    '': 'Alle', stoerung: 'Störungen', versorgung: 'Versorgung', player: 'Spieler', fortschritt: 'Fortschritt',
+    '': tr('Alle'), stoerung: tr('Störungen'), versorgung: tr('Versorgung'), player: tr('Spieler'), fortschritt: tr('Fortschritt'),
   };
   const GROUP: Record<string, string> = {
     fuse: 'stoerung', derail: 'stoerung', nofuel: 'stoerung', stall: 'stoerung', system: 'stoerung',
@@ -17,7 +18,7 @@
 
   function day(t: number) {
     const d = new Date(t * 1000), now = new Date();
-    return d.toDateString() === now.toDateString() ? 'Heute' : d.toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' });
+    return d.toDateString() === now.toDateString() ? tr('Heute') : d.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' });
   }
   function open(e: any) {
     if (e.x === null) return;
@@ -29,8 +30,8 @@
 <div class="wrap" class:compact>
   {#if !compact}
     <div class="head">
-      <h2>Ereignisse</h2>
-      <button class="x" onclick={onclose} aria-label="Schließen">✕</button>
+      <h2>{$t('Ereignisse')}</h2>
+      <button class="x" onclick={onclose} aria-label={$t('Schließen')}>✕</button>
     </div>
     <div class="filters">
       {#each Object.entries(KINDS) as [k, l]}
@@ -45,11 +46,11 @@
         <button onclick={() => open(e)} disabled={e.x === null}>
           <span class="t num">{clock(e.t)}</span>
           <span class="mk" aria-hidden="true"></span>
-          <span class="tx">{e.text}</span>
+          <span class="tx">{$lx(e.text)}</span>
         </button>
       </li>
     {:else}
-      <li class="none">Keine Ereignisse. Hier erscheinen Störungen, Versorgungslücken, Spieler und Baufortschritt, sobald sie passieren.</li>
+      <li class="none">{$t('Keine Ereignisse. Hier erscheinen Störungen, Versorgungslücken, Spieler und Baufortschritt, sobald sie passieren.')}</li>
     {/each}
   </ol>
 </div>

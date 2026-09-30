@@ -1,4 +1,4 @@
-# Start:  cp .env.example .env  →  .env ausfüllen  →  docker compose up -d  →  http://localhost:8050
+# Start:  cp .env.example .env  →  fill in .env  →  docker compose up -d  →  http://localhost:8050
 services:
   map:
     build: .
@@ -7,9 +7,9 @@ services:
       - "8050:8050"
     env_file: .env
     volumes:
-      - map-data:/data                       # Verlauf, Notizen, zuletzt geholtes Save
-      # Läuft der Gameserver auf demselben Rechner: Save-Ordner direkt einhängen und in .env SAVE_SOURCE=/saves setzen
-      # - /pfad/zu/FactoryGame/Saved/SaveGames/server:/saves:ro
+      - map-data:/data                       # history, notes, last fetched save
+      # If the game server runs on the same machine: mount the save folder directly and set SAVE_SOURCE=/saves in .env
+      # - /path/to/FactoryGame/Saved/SaveGames/server:/saves:ro
     restart: unless-stopped
 
 volumes:

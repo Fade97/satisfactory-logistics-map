@@ -1,23 +1,23 @@
-**[Start](Home)**
+**[Home](Home)**
 
-**Einrichten**
-- [Installation mit Docker](Installation-mit-Docker)
-- [Installation ohne Docker](Installation-ohne-Docker)
-- [Save-Quelle einrichten](Save-Quelle-einrichten)
-- [Live-Daten mit FRM](Live-Daten-mit-FRM)
-- [Öffentlich erreichbar](Oeffentlich-erreichbar-machen)
-- [Konfiguration](Konfiguration)
+**Setup**
+- [Installation with Docker](Installation-with-Docker)
+- [Installation without Docker](Installation-without-Docker)
+- [Save source](Save-source)
+- [Live data with FRM](Live-data-with-FRM)
+- [Public access](Public-access)
+- [Configuration](Configuration)
 
-**Benutzen**
-- [Bedienung](Bedienung)
-- [Die Karte](Karte)
-- [Produktionsrechner](Produktionsrechner)
-- [How-tos](How-tos)
+**Using the map**
+- [Usage](Usage)
+- [The map](Map)
+- [Planner](Planner)
+- [How-to](How-to)
 
-**Betreiben**
-- [Aktualisieren und Sichern](Aktualisieren-und-Sichern)
-- [Fehlerbehebung](Fehlerbehebung)
+**Operation**
+- [Updating and backups](Updating-and-backups)
+- [Troubleshooting](Troubleshooting)
 
-**Entwickeln**
+**Development**
 - [API](API)
-- [Entwicklung](Entwicklung)
+- [Development](Development)

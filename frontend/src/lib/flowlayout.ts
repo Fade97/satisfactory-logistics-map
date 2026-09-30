@@ -8,6 +8,8 @@
 //   3. Reihenfolge je Schicht per Baryzentrum (mehrere Durchläufe hin und zurück) → wenige Kreuzungen.
 //   4. Anschlusspunkte je Knoten nach Lage der Gegenstelle verteilt, Linienstärke nach Menge.
 
+import { tr } from './i18n';
+
 export interface FNode { id: string; kind: 'raw' | 'sur' | 'step' | 'target'; label: string; sub: string; layer: number; order: number;
   x: number; y: number; data?: any }
 export interface FEdge { id: string; a: FNode; b: FNode; item: string; rate: number; kind: 'raw' | 'sur' | 'mid';
@@ -24,8 +26,8 @@ export function layout(res: any, fmt: (n: number) => string) {
   const cons: { n: FNode; item: string; amt: number }[] = [];            // Verbrauch je Knoten
   const addProd = (item: string, n: FNode, amt: number) => { if (!prod.has(item)) prod.set(item, []); prod.get(item)!.push({ n, amt }); };
 
-  for (const r of res.raw) addProd(r.item, add({ id: 'raw:' + r.item, kind: 'raw', label: r.item, sub: fmt(r.rate) + '/min Rohstoff' }), r.rate);
-  for (const u of res.surplus_used) addProd(u.item, add({ id: 'sur:' + u.item, kind: 'sur', label: u.item, sub: fmt(u.rate) + '/min aus Überschuss' }), u.rate);
+  for (const r of res.raw) addProd(r.item, add({ id: 'raw:' + r.item, kind: 'raw', label: r.item, sub: tr('{rate}/min Rohstoff', { rate: fmt(r.rate) }) }), r.rate);
+  for (const u of res.surplus_used) addProd(u.item, add({ id: 'sur:' + u.item, kind: 'sur', label: u.item, sub: tr('{rate}/min aus Überschuss', { rate: fmt(u.rate) }) }), u.rate);
   res.steps.forEach((s: any, i: number) => {
     const n = add({ id: 'step:' + i, kind: 'step', label: s.recipe, sub: `${fmt(s.machines)}× ${s.building}`, data: s });
     s.out.forEach((o: any) => addProd(o.item, n, o.rate));
@@ -40,7 +42,7 @@ export function layout(res: any, fmt: (n: number) => string) {
       n.kind = 'target'; n.sub = fmt(t.rate) + '/min Ziel · ' + n.sub;
       continue;
     }
-    const n = add({ id: 'target:' + t.item, kind: 'target', label: t.item, sub: fmt(t.rate) + '/min Ziel' });
+    const n = add({ id: 'target:' + t.item, kind: 'target', label: t.item, sub: tr('{rate}/min Ziel', { rate: fmt(t.rate) }) });
     cons.push({ n, item: t.item, amt: t.rate });
   }
 

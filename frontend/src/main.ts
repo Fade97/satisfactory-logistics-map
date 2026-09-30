@@ -1,6 +1,10 @@
 import './app.css';
 import { mount } from 'svelte';
 import App from './App.svelte';
+import { get } from 'svelte/store';
+import { lang } from './lib/i18n';
+
+document.documentElement.lang = get(lang);
 
 export default mount(App, { target: document.getElementById('app')! });
 

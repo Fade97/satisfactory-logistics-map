@@ -1,123 +1,126 @@
-<p align="center"><img src="docs/logo/banner.png" alt="Satisfactory-Logistikkarte" width="720"></p>
+<p align="center"><img src="docs/logo/banner.png" alt="Satisfactory Logistics Map" width="720"></p>
 
 <p align="center">
-  <a href="https://github.com/Fade97/satisfactory-logistikkarte/actions/workflows/ci.yml"><img src="https://github.com/Fade97/satisfactory-logistikkarte/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/badge/Lizenz-MIT-f59a23" alt="MIT"></a>
-  <a href="https://github.com/Fade97/satisfactory-logistikkarte/wiki"><img src="https://img.shields.io/badge/Doku-Wiki-1b1c1e" alt="Wiki"></a>
+  <a href="https://github.com/Fade97/satisfactory-logistics-map/actions/workflows/ci.yml"><img src="https://github.com/Fade97/satisfactory-logistics-map/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-f59a23" alt="MIT"></a>
+  <a href="https://github.com/Fade97/satisfactory-logistics-map/wiki"><img src="https://img.shields.io/badge/Docs-Wiki-1b1c1e" alt="Wiki"></a>
 </p>
 
-# Satisfactory-Logistikkarte
+# Satisfactory Logistics Map
 
-Web-Karte für einen eigenen Satisfactory-Dedicated-Server. Sie liest den Spielstand und zeigt, was in der Fabrik los ist,
-am PC, auf dem zweiten Monitor oder am Handy. Die Oberfläche ist auf Deutsch, Warennamen sind wahlweise englisch oder deutsch.
+Deutsche Kurzfassung: [README.de.md](README.de.md)
 
-- **Lage**: was gerade klemmt, Mangelware, was seit dem letzten Besuch passiert ist
-- **Karte**: Stationen, Züge, LKW, Spieler (Folge-Modus), Gleise/Bänder/Rohre, Fundamente, Heatmap stehender Maschinen,
-  Warenfluss je Ware, Sammelobjekte, Höhenfilter, Messen, Notizen, Zeitreise der letzten 24 h
-- **Produktion**: Warenbilanz, Fabriken (automatisch über das Bandnetz erkannt), stehende Maschinen mit Grund, 3D-Ansicht je Fabrik
-- **Strom**: Netze, Auslastung, Brennstoff-Reichweite, Maschinen ohne Stromanschluss
-- **Logistik**: Füllstände, Zug- und LKW-Durchsatz, Fahrplan-Prüfung, Lager, AWESOME Sink
-- **Verlauf**: Produktion und Strom über Stunden bis Monate, Änderungsprotokoll
-- **Rechner**: Produktionsketten nur mit freigeschalteten Rezepten, Überschüsse nutzen, Bauplatz, Blueprint-Export (experimentell)
-- Installierbar als App (PWA), Kiosk-Modus für einen Nebenbildschirm (`#/kiosk?folge=<Spieler>&rotate=30`)
+A web map for your own Satisfactory dedicated server. It reads the save and shows what is going on in your factory,
+on your PC, on a second monitor or on your phone. The UI is in English by default; you can switch it to German under
+**My view → Language**. Item names can be shown in English or German.
 
-![Karte](docs/bilder/karte.png)
+- **Overview**: what is stuck right now, shortages, what happened since your last visit
+- **Map**: stations, trains, trucks, players (follow mode), rails/belts/pipes, foundations, heatmap of stopped machines,
+  item flow per item, collectibles, height filter, measuring, notes, time travel over the last 24 h
+- **Production**: item balance, factories (detected automatically from the belt network), stopped machines with reason, 3D view per factory
+- **Power**: grids, load, fuel range, machines not connected to power
+- **Logistics**: fill levels, train and truck throughput, schedule check, storage, AWESOME Sink
+- **History**: production and power over hours to months, change log
+- **Planner**: production chains using only unlocked recipes, use factory surplus, build site, blueprint export (experimental)
+- Installable as an app (PWA), kiosk mode for a side screen (`#/kiosk?follow=<player>&rotate=30`)
 
-<p><img src="docs/bilder/lage.png" width="49%"> <img src="docs/bilder/rechner.png" width="49%"></p>
+![Map](docs/images/map.png)
 
-Ohne Mod läuft alles aus dem Save, im Autosave-Takt (meist 5 min). Mit dem optionalen Mod
-[FicsIt Remote Monitoring](docs/FRM.md) kommen Positionen alle 5 s und Maschinen und Strom jede Minute.
+<p><img src="docs/images/overview.png" width="49%"> <img src="docs/images/planner.png" width="49%"></p>
 
-**Ausführliche Anleitungen im [Wiki](https://github.com/Fade97/satisfactory-logistikkarte/wiki)**: Installation,
-Save-Quelle je Server-Typ, Live-Daten, Reverse Proxy, How-tos, Fehlerbehebung, API.
+Without a mod, everything comes from the save, at the autosave interval (usually 5 min). With the optional mod
+[FicsIt Remote Monitoring](docs/FRM.md), positions update every 5 s and machines and power every minute.
 
-## Schnellstart mit Docker
+**Detailed guides in the [wiki](https://github.com/Fade97/satisfactory-logistics-map/wiki)**: installation,
+save source per server type, live data, reverse proxy, how-tos, troubleshooting, API.
+
+## Quick start with Docker
 
 ```sh
-git clone https://github.com/Fade97/satisfactory-logistikkarte.git
-cd satisfactory-logistikkarte
-cp .env.example .env        # Save-Quelle eintragen, siehe unten
-docker compose up -d        # baut das Image beim ersten Start
+git clone https://github.com/Fade97/satisfactory-logistics-map.git
+cd satisfactory-logistics-map
+cp .env.example .env        # set the save source, see below
+docker compose up -d        # builds the image on first start
 ```
 
-Danach http://localhost:8050 öffnen. Solange noch kein Save da ist, zeigt die Seite oben den Grund an,
-zum Beispiel falsches Passwort oder Ordner nicht gefunden. Der nächste Versuch läuft automatisch nach einer Minute.
+Then open http://localhost:8050. As long as there is no save yet, the page shows the reason at the top,
+for example a wrong password or a folder that was not found. The next attempt runs automatically after one minute.
 
-## Save-Quelle wählen (`SAVE_SOURCE`)
+## Choose a save source (`SAVE_SOURCE`)
 
-| Variante | `SAVE_SOURCE` | Wann |
+| Option | `SAVE_SOURCE` | When |
 |---|---|---|
-| **Server-API** | `api://server:7777` + `SAVE_PASSWORD` (Admin-Passwort) | Am einfachsten, geht bei jedem Dedicated Server und braucht nur Adresse und Admin-Passwort. Liest das jüngste Save der laufenden Session, ohne ein neues anzulegen. |
-| **SFTP** | `sftp://user@host:2022/pfad` + `SAVE_PASSWORD` oder `SAVE_KEY` | Pterodactyl (Port 2022, Benutzer `<panelname>.<server-id>`, Pfad `/.config/Epic/FactoryGame/Saved/SaveGames/server`) oder eigener Linux-Server |
-| **FTP/FTPS** | `ftp://…` / `ftps://user@host/pfad` + `SAVE_PASSWORD` | viele Server-Hoster |
-| **Ordner** | `/saves` (Volume in `docker-compose.yml` einhängen) | Gameserver läuft auf demselben Rechner |
-| *(leer)* | – | `*.sav` von Hand in das Datenvolume unter `saves/` legen |
+| **Server API** | `api://server:7777` + `SAVE_PASSWORD` (admin password) | Easiest; works with every dedicated server and only needs the address and admin password. Reads the latest save of the running session without creating a new one. |
+| **SFTP** | `sftp://user@host:2022/path` + `SAVE_PASSWORD` or `SAVE_KEY` | Pterodactyl (port 2022, user `<panelname>.<server-id>`, path `/.config/Epic/FactoryGame/Saved/SaveGames/server`) or your own Linux server |
+| **FTP/FTPS** | `ftp://…` / `ftps://user@host/path` + `SAVE_PASSWORD` | many server hosters |
+| **Folder** | `/saves` (mount the volume in `docker-compose.yml`) | the game server runs on the same machine |
+| *(empty)* | – | put `*.sav` files into the data volume under `saves/` by hand |
 
-Typische Save-Ordner: Linux-Server `~/.config/Epic/FactoryGame/Saved/SaveGames/server/`,
-Windows-Server `%LOCALAPPDATA%\FactoryGame\Saved\SaveGames\server\`. Genommen wird das jüngste `*.sav`.
-Mehrere Sessions im Ordner lassen sich mit `SAVE_PATTERN=Session_*.sav` eingrenzen.
-Geladen wird nur, wenn sich das Save geändert hat. Der Abruf läuft jede Minute.
+Typical save folders: Linux server `~/.config/Epic/FactoryGame/Saved/SaveGames/server/`,
+Windows server `%LOCALAPPDATA%\FactoryGame\Saved\SaveGames\server\`. The newest `*.sav` is used.
+If the folder holds several sessions, narrow it down with `SAVE_PATTERN=Session_*.sav`.
+The save is only loaded when it has changed. The check runs every minute.
 
-## Einstellungen
+## Settings
 
-| Variable | Standard | Bedeutung |
+| Variable | Default | Meaning |
 |---|---|---|
-| `SAVE_SOURCE` | *(leer = `saves/`)* | siehe oben |
-| `SAVE_PASSWORD` / `SAVE_TOKEN` / `SAVE_KEY` | – | Zugang zur Save-Quelle; ein Sonderzeichen im Passwort ist hier unkritischer als in der URL |
-| `SAVE_PATTERN` | `*.sav` | Dateimuster |
-| `FRM_URL` | *(leer = aus)* | FicsIt Remote Monitoring, z. B. `http://server:8080`, siehe [docs/FRM.md](docs/FRM.md) |
-| `MAP_PIN_PASSWORD` | *(leer = nur lesen)* | gemeinsames Passwort für Notizen, Fabriknamen und -status |
-| `MAP_TITLE` | Sessionname | Name oben links |
-| `MAP_DATA` | `data/` (`/data` im Container) | Verlauf (SQLite), Notizen, erzeugte Blueprints |
-| `TZ` | `Europe/Berlin` (Container) | Zeitzone für Zeitangaben |
+| `SAVE_SOURCE` | *(empty = `saves/`)* | see above |
+| `SAVE_PASSWORD` / `SAVE_TOKEN` / `SAVE_KEY` | – | access to the save source; special characters in the password are less of a problem here than in the URL |
+| `SAVE_PATTERN` | `*.sav` | file pattern |
+| `FRM_URL` | *(empty = off)* | FicsIt Remote Monitoring, e.g. `http://server:8080`, see [docs/FRM.md](docs/FRM.md) |
+| `MAP_PIN_PASSWORD` | *(empty = read-only)* | shared password for notes, factory names and status |
+| `MAP_TITLE` | session name | name in the top left |
+| `MAP_DATA` | `data/` (`/data` in the container) | history (SQLite), notes, generated blueprints |
+| `TZ` | `Europe/Berlin` (container) | time zone for timestamps |
 
-**Öffentlich erreichbar machen:** hinter einen Reverse Proxy mit HTTPS stellen, zum Beispiel Traefik, Caddy oder nginx.
-Lesen ist offen. Schreiben verlangt das Passwort, nach 10 Fehlversuchen ist die IP 10 Minuten gesperrt.
-Den FRM-Port nicht öffentlich freigeben.
+**Public access:** put the map behind a reverse proxy with HTTPS, for example Traefik, Caddy or nginx.
+Reading is open. Writing requires the password; after 10 failed attempts the IP is blocked for 10 minutes.
+Do not expose the FRM port publicly.
 
-## Ohne Docker
+## Without Docker
 
 ```sh
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cd frontend && pnpm install && pnpm run build && cd ..
-SAVE_SOURCE=/pfad/zu/SaveGames/server .venv/bin/python mapd.py --port 8050
+SAVE_SOURCE=/path/to/SaveGames/server .venv/bin/python mapd.py --port 8050
 ```
 
-Für den Dauerbetrieb eignet sich ein systemd-Dienst mit denselben Umgebungsvariablen (`Environment=` bzw. `EnvironmentFile=`).
+For permanent operation, use a systemd service with the same environment variables (`Environment=` or `EnvironmentFile=`).
 
-## Entwicklung
+## Development
 
 ```sh
 .venv/bin/pip install -r requirements-dev.txt
 make test       # pytest (tests/) + vitest (frontend/tests/)
-make check      # dazu Typprüfung, Build und Rauchtest aller Seiten gegen :8050 (Desktop + Handy)
-cd frontend && pnpm dev   # Vite mit Proxy auf den laufenden Dienst
+make check      # adds type checking, build and a smoke test of all pages against :8050 (desktop + phone)
+cd frontend && pnpm dev   # Vite with a proxy to the running service
 ```
 
-Die Save-Tests brauchen `tests/fixtures/sample.sav`, eine beliebige Kopie eines Saves. Die Datei liegt nicht im Repo,
-und die festen Zahlen in `tests/test_backend.py` gelten nur für das ursprüngliche Save. Die Tests der Save-Quellen
-(`tests/test_source.py`) laufen ohne Fixture.
+The save tests need `tests/fixtures/sample.sav`, any copy of a save. The file is not in the repo,
+and the fixed numbers in `tests/test_backend.py` only apply to the original save. The save source tests
+(`tests/test_source.py`) run without a fixture.
 
-## Aufbau
+## Structure
 
-| Teil | Aufgabe |
+| Part | Purpose |
 |---|---|
-| `mapd.py` | Einstieg: ein Dienst mit drei Takten (live 5 s, Fabrik 60 s, Save 60 s), liefert `frontend/dist` und `/api/*` |
-| `mapsvc/` | `core` (Zustand, Konfiguration), `source` (Save-Quellen), `collect` (Takte), `factory` (Bilanz, Fabrik-Erkennung), `events`, `logistics` (Durchsatz, Fahrplan), `planner`, `http` |
-| `sav.py`, `sbp.py` | Save- und Blueprint-Format (UE 5.4+ Property-Tags), siehe [docs/BLUEPRINTS.md](docs/BLUEPRINTS.md) |
-| `factory.py` | Fabrik aus dem Save: Maschinen, Rezepte, Raten, Stromnetze, Bänder, Warenfluss, Sammelobjekte, Lager |
-| `stations.py`, `lightweight.py` | Stationen, Fahrpläne, Fahrzeuge; Fundamente und Wände (Leichtbau-Objekte) |
-| `planner.py` | Produktionsrechner (lineares Programm, scipy/HiGHS) |
-| `store.py` | SQLite: Zeitreihen (Minute 48 h → Stunde 90 Tage → Tag), Ereignisse, Spuren, Notizen |
-| `frm.py`, `geo.py` | Client für FicsIt Remote Monitoring |
-| `frontend/` | Svelte 5 + Vite, eigene Canvas-Karte (`lib/mapview.ts`), three.js für 3D |
-| `gamedata/` | Rezepte, Rohstoffknoten, Rezeptpfade, Blueprint-Vorlagen |
-| `blueprints/`, `gen.py`, `bpgen.py` | Bahn-Set-Blueprints und Generator |
-| `tools/` | `install_frm_pterodactyl.sh`: SML + FRM auf einen Pterodactyl-Server bringen |
-| `docs/` | [DESIGN](docs/DESIGN.md) (Gestaltung), [FRM](docs/FRM.md), [BLUEPRINTS](docs/BLUEPRINTS.md), [ROADMAP](ROADMAP.md) |
+| `mapd.py` | Entry point: one service with three loops (live 5 s, factory 60 s, save 60 s), serves `frontend/dist` and `/api/*` |
+| `mapsvc/` | `core` (state, configuration), `source` (save sources), `collect` (loops), `factory` (balance, factory detection), `events`, `logistics` (throughput, schedule), `planner`, `http` |
+| `sav.py`, `sbp.py` | Save and blueprint format (UE 5.4+ property tags), see [docs/BLUEPRINTS.md](docs/BLUEPRINTS.md) |
+| `factory.py` | Factory from the save: machines, recipes, rates, power grids, belts, item flow, collectibles, storage |
+| `stations.py`, `lightweight.py` | Stations, schedules, vehicles; foundations and walls (lightweight buildables) |
+| `planner.py` | Production planner (linear program, scipy/HiGHS) |
+| `store.py` | SQLite: time series (minute 48 h → hour 90 days → day), events, trails, notes |
+| `frm.py`, `geo.py` | Client for FicsIt Remote Monitoring |
+| `frontend/` | Svelte 5 + Vite, custom canvas map (`lib/mapview.ts`), three.js for 3D |
+| `gamedata/` | Recipes, resource nodes, recipe paths, blueprint templates |
+| `blueprints/`, `gen.py`, `bpgen.py` | Railway set blueprints and generator |
+| `tools/` | `install_frm_pterodactyl.sh`: install SML + FRM on a Pterodactyl server |
+| `docs/` | [DESIGN](docs/DESIGN.md) (visual design), [FRM](docs/FRM.md), [BLUEPRINTS](docs/BLUEPRINTS.md), [ROADMAP](ROADMAP.md) |
 
-## Lizenz
+## License
 
-Code unter [MIT](LICENSE). Mitgelieferte Daten fremder Projekte haben eigene Lizenzen, siehe [THIRD_PARTY.md](THIRD_PARTY.md).
-Die Kartengrafik steht unter CC BY-NC-SA und darf nicht kommerziell genutzt werden.
-Kein offizielles Projekt; Satisfactory ist eine Marke von Coffee Stain Studios.
+Code under [MIT](LICENSE). Bundled data from other projects has its own licenses, see [THIRD_PARTY.md](THIRD_PARTY.md).
+The map image is licensed CC BY-NC-SA and must not be used commercially.
+Not an official project; Satisfactory is a trademark of Coffee Stain Studios.

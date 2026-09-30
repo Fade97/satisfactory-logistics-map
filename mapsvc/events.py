@@ -1,7 +1,48 @@
 """Ereignisse (Flanke, Hysterese, 2-h-Sperre), Änderungsprotokoll, Wachstum, Lager-Warnungen."""
-import collections, time
+import collections, json, os, re, time
 
 from .core import ST, DB, paused
+
+
+# ---------------------------------------------------------------- Ältere deutsche Ereignistexte → Englisch (einmalig)
+TEXTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'src', 'lib', 'i18n', 'server-texts.json')
+
+
+def _de_to_en():
+    rules = []
+    for en, de in json.load(open(TEXTS)):
+        rx = re.compile('^' + re.sub(r'\\\{(\d)\\\}', '(.+?)', re.escape(de)) + '$', re.S)
+        rules.append((rx, [int(n) for n in re.findall(r'\{(\d)\}', de)], en))
+
+    def conv(t, depth=0):
+        for rx, order, en in rules:
+            m = rx.match(t)
+            if m and depth < 4:
+                val = {n: conv(m.group(i + 1), depth + 1) for i, n in enumerate(order)}
+                return re.sub(r'\{(\d)\}', lambda g: val.get(int(g.group(1)), ''), en)
+        return t
+    return conv
+
+
+def migrate_texts():
+    """Ereignisse aus der Zeit vor der Umstellung auf englische Backend-Texte übersetzen — einmal je Datenbank."""
+    if DB.kv_get('texts_en', False) or not os.path.exists(TEXTS):
+        return
+    conv = _de_to_en()
+    with DB.lock:
+        rows = DB.db.execute('SELECT id, text FROM events').fetchall()
+        n = 0
+        for i, t in rows:
+            e = conv(t or '')
+            if e != t:
+                DB.db.execute('UPDATE events SET text = ? WHERE id = ?', (e, i)); n += 1
+        DB.db.commit()
+    DB.kv_put('texts_en', True)
+    if n:
+        print('Event texts migrated to English:', n, flush=True)
+
+
+migrate_texts()
 
 
 # ---------------------------------------------------------------- Ereignisse
@@ -32,19 +73,19 @@ _last = {}
 
 def factory_events(fac, t):
     for c in fac['circuits']:
-        _edge('fuse', c['id'], c.get('fuse'), 'error', 'Sicherung ausgelöst in Netz %s' % c['id'])
+        _edge('fuse', c['id'], c.get('fuse'), 'error', 'Fuse tripped in grid %s' % c['id'])
         if c.get('battery_cap'):
             _edge('battery', c['id'], c['battery'] < 0.2 * c['battery_cap'] and c['use'] > c['prod'], 'warn',
-                  'Batterie in Netz %s unter 20 %%' % c['id'])
+                  'Battery in grid %s below 20 %%' % c['id'])
     nop = [x for x in fac['machines'] if x.get('nopower')]
-    _edge('nopower', 'all', bool(nop), 'warn', '%d Maschinen ohne Stromanschluss' % len(nop),
+    _edge('nopower', 'all', bool(nop), 'warn', '%d machines not connected to power' % len(nop),
           *(nop[0]['pos'] if nop else (None, None)))
     for f in fac['factories']:
         if f.get('status') != 'aktiv':          # im Aufbau / stillgelegt / Puffer: keine Warnungen
             _edge('stall', f['key'], False, 'warn', '')
             continue
         bad = f['starved'] / max(1, f['n'])
-        _edge('stall', f['key'], bad > .3 and f['starved'] >= 4, 'warn', '%s: %d von %d Maschinen fehlt Material' % (
+        _edge('stall', f['key'], bad > .3 and f['starved'] >= 4, 'warn', '%s: %d of %d machines missing input' % (
             f['name'], f['starved'], f['n']), *f['center'], clear=bad < .15)
 
 
@@ -56,25 +97,25 @@ def live_events(live):
             o = was.get(p['name'])
             x, y = p['pos'][0] / 100, p['pos'][1] / 100
             if o and p['online'] and not o['online']:
-                DB.event('player', 'info', '%s ist online' % p['name'], ref='player:' + p['name'], x=x, y=y)
+                DB.event('player', 'info', '%s is online' % p['name'], ref='player:' + p['name'], x=x, y=y)
             elif o and not p['online'] and o['online']:
-                DB.event('player', 'info', '%s ist offline' % p['name'], ref='player:' + p['name'], x=x, y=y)
+                DB.event('player', 'info', '%s is offline' % p['name'], ref='player:' + p['name'], x=x, y=y)
             if o and p['dead'] and not o['dead']:
-                DB.event('player', 'warn', '%s ist gestorben' % p['name'], ref='player:' + p['name'], x=x, y=y)
+                DB.event('player', 'warn', '%s died' % p['name'], ref='player:' + p['name'], x=x, y=y)
     from .logistics import train_transfers, train_rounds
     train_transfers(live)
     train_rounds(live)
     for v in live.get('trains', []):
-        _edge('derail', v['name'], v.get('derailed'), 'error', 'Zug %s entgleist' % v['name'], v['pos'][0] / 100, v['pos'][1] / 100)
+        _edge('derail', v['name'], v.get('derailed'), 'error', 'Train %s derailed' % v['name'], v['pos'][0] / 100, v['pos'][1] / 100)
     for v in live.get('trucks', []):
         _edge('nofuel', v.get('id') or v['name'], v.get('fuel') is False and v.get('autopilot'), 'warn',
-              '%s %s ohne Treibstoff' % (v.get('type', 'LKW'), v['name']), v['pos'][0] / 100, v['pos'][1] / 100)
+              '%s %s out of fuel' % (v.get('type', 'Truck'), v['name']), v['pos'][0] / 100, v['pos'][1] / 100)
     ss = live.get('stations') or {}
     if ST.stations:
         for s in ST.stations['trucks']:
             lv = ss.get(s['id'].split('.')[-1])
             if lv and lv.get('status') == 'Error':
-                _edge('empty', s['id'], True, 'warn', 'Station %s meldet Fehler' % s['name'], s['pos'][0] / 100, s['pos'][1] / 100)
+                _edge('empty', s['id'], True, 'warn', 'Station %s reports an error' % s['name'], s['pos'][0] / 100, s['pos'][1] / 100)
             else:
                 _edge('empty', s['id'], False, 'warn', '')
     ST.prev_live = live
@@ -90,7 +131,7 @@ def changelog(fac, t):
         return
     new = [cur[k] for k in cur.keys() - old.keys()]
     gone = [old[k] for k in old.keys() - cur.keys()]
-    for label, rows, lvl in (('gebaut', new, 'info'), ('abgerissen', gone, 'info')):
+    for label, rows, lvl in (('built', new, 'info'), ('removed', gone, 'info')):
         if not rows:
             continue
         cnt = collections.Counter(r[0] for r in rows)
@@ -111,7 +152,7 @@ def growth(fac, t):
     cur = fac['progress'].get('schematics', [])
     if prev:
         for s in [s for s in cur if s not in prev][:10]:
-            DB.event('progress', 'info', 'Freigeschaltet: ' + s, ref='progress', t=t)
+            DB.event('progress', 'info', 'Unlocked: ' + s, ref='progress', t=t)
     DB.kv_put('schematics', cur)
 
 
@@ -126,7 +167,7 @@ def storage_events(st):
             continue
         near = sum(1 for m in full_out if (m['pos'][0] - c['pos'][0]) ** 2 + (m['pos'][1] - c['pos'][1]) ** 2 < 3600)
         it = c['items'][0]['item'] if c['items'] else '?'
-        _edge('full', c['id'], c['fill'] > .98 and near >= 2, 'warn', 'Lager voll (%s), %d Maschinen stauen davor' % (it, near),
+        _edge('full', c['id'], c['fill'] > .98 and near >= 2, 'warn', 'Storage full (%s), %d machines backed up' % (it, near),
               c['pos'][0], c['pos'][1], clear=c['fill'] < .9)
 
 

@@ -5,6 +5,7 @@
   import { CIRCUIT_COLORS } from '../lib/scene';
   import LineChart from '../lib/LineChart.svelte';
   import { tn } from '../lib/names';
+  import { t, tr } from '../lib/i18n';
 
   const f = $derived($factory);
   const circuits = $derived((f?.circuits || []).filter(c => (c.cap > 0 || c.n_mach > 0) && c.id !== -1));
@@ -18,8 +19,8 @@
       const k = 'power:' + c.id + ':';
       const r = await series([k + 'prod', k + 'use', k + 'cap'], Date.now() / 1000 - range);
       out[c.id] = [
-        { key: 'use', label: 'Verbrauch', points: r.data[k + 'use'] || [], color: SERIES[0] },
-        { key: 'cap', label: 'Kapazität', points: r.data[k + 'cap'] || [], color: SERIES[1], dash: true },
+        { key: 'use', label: tr('Verbrauch'), points: r.data[k + 'use'] || [], color: SERIES[0] },
+        { key: 'cap', label: tr('Kapazität'), points: r.data[k + 'cap'] || [], color: SERIES[1], dash: true },
       ];
     }
     hist = out;
@@ -50,13 +51,13 @@
 </script>
 
 <div class="page">
-  <h1>Strom</h1>
-  <p class="src">{f ? (f.source === 'frm' ? 'Live-Werte je Netz' : 'Aus dem Save ' + ago($status?.save?.mtime) + ' — Verbrauch geschätzt aus Laufzeit × Nennleistung') : 'lädt …'}</p>
+  <h1>{$t('Strom')}</h1>
+  <p class="src">{f ? (f.source === 'frm' ? $t('Live-Werte je Netz') : $t('Aus dem Save {ago} — Verbrauch geschätzt aus Laufzeit × Nennleistung', { ago: ago($status?.save?.mtime) })) : $t('lädt …')}</p>
 
   {#if nopower.length}
     <div class="panel card warnbox">
-      <h2>Ohne Stromanschluss · {nopower.length} Maschinen</h2>
-      <p class="muted small">Diese Maschinen hängen an keinem Stromnetz und laufen deshalb nicht.</p>
+      <h2>{$t('Ohne Stromanschluss · {n} Maschinen', { n: nopower.length })}</h2>
+      <p class="muted small">{$t('Diese Maschinen hängen an keinem Stromnetz und laufen deshalb nicht.')}</p>
       <div class="np">
         {#each nopower as m}<button class="lk" onclick={() => toMap('machine:' + m.id, m.pos[0], m.pos[1])}>{$tn(m.name)}{m.recipe ? ' · ' + $tn(m.recipe) : ''} <span class="muted">{m.pos[0]} / {m.pos[1]}</span></button>{/each}
       </div>
@@ -66,37 +67,37 @@
     {#each circuits as c, i (c.id)}
       {@const pct = load_(c)}
       <div class="panel card net">
-        <div class="hd"><span class="sw" style="background:{CIRCUIT_COLORS[Math.abs(c.id) % CIRCUIT_COLORS.length]}"></span><h2>Netz {c.id}</h2>
-          {#if c.fuse}<span class="tag bad">⚠ Sicherung ausgelöst</span>{/if}
-          <span class="muted small">{c.n_mach} Verbraucher{c.n_gen != null ? ' · ' + c.n_gen + ' Generatoren' : ''}</span></div>
+        <div class="hd"><span class="sw" style="background:{CIRCUIT_COLORS[Math.abs(c.id) % CIRCUIT_COLORS.length]}"></span><h2>{$t('Netz {id}', { id: c.id })}</h2>
+          {#if c.fuse}<span class="tag bad">⚠ {$t('Sicherung ausgelöst')}</span>{/if}
+          <span class="muted small">{$t('{n} Verbraucher', { n: c.n_mach })}{c.n_gen != null ? ' · ' + $t('{n} Generatoren', { n: c.n_gen }) : ''}</span></div>
         <div class="big">
-          <div><span class="v num">{fmtMW(c.use)}</span><span class="l">Verbrauch</span></div>
-          <div><span class="v num">{fmtMW(c.cap)}</span><span class="l">Kapazität</span></div>
-          <div><span class="v num" style="color:{c.cap - c.use < 0 ? C.bad : 'inherit'}">{fmtMW(c.cap - c.use)}</span><span class="l">Reserve</span></div>
-          <div><span class="v num muted">{fmtMW(c.max_use)}</span><span class="l">Spitzenbedarf</span></div>
+          <div><span class="v num">{fmtMW(c.use)}</span><span class="l">{$t('Verbrauch')}</span></div>
+          <div><span class="v num">{fmtMW(c.cap)}</span><span class="l">{$t('Kapazität')}</span></div>
+          <div><span class="v num" style="color:{c.cap - c.use < 0 ? C.bad : 'inherit'}">{fmtMW(c.cap - c.use)}</span><span class="l">{$t('Reserve')}</span></div>
+          <div><span class="v num muted">{fmtMW(c.max_use)}</span><span class="l">{$t('Spitzenbedarf')}</span></div>
         </div>
-        <div class="meter" role="meter" aria-valuenow={Math.round(pct * 100)} aria-valuemin="0" aria-valuemax="100" aria-label="Auslastung">
+        <div class="meter" role="meter" aria-valuenow={Math.round(pct * 100)} aria-valuemin="0" aria-valuemax="100" aria-label={$t('Auslastung')}>
           <i style="width:{Math.min(100, pct * 100)}%;background:{pct > .95 ? C.bad : pct > .8 ? C.warn : 'var(--ficsit)'}"></i>
-          {#if c.cap && c.max_use}<b style="left:{Math.min(100, c.max_use / c.cap * 100)}%" title="Spitzenbedarf, wenn alle Maschinen voll laufen"></b>{/if}
+          {#if c.cap && c.max_use}<b style="left:{Math.min(100, c.max_use / c.cap * 100)}%" title={$t('Spitzenbedarf, wenn alle Maschinen voll laufen')}></b>{/if}
         </div>
-        <div class="muted small">{Math.round(pct * 100)} % ausgelastet{c.max_use > c.cap ? ' · Spitzenbedarf übersteigt Kapazität um ' + fmtMW(c.max_use - c.cap) : ''}</div>
+        <div class="muted small">{$t('{p} % ausgelastet', { p: Math.round(pct * 100) })}{c.max_use > c.cap ? ' · ' + $t('Spitzenbedarf übersteigt Kapazität um {mw}', { mw: fmtMW(c.max_use - c.cap) }) : ''}</div>
         {#if c.battery_cap}
-          <div class="bat"><span>Batterie</span><div class="meter sm"><i style="width:{c.battery}%;background:{C.ok}"></i></div><span class="num">{Math.round(c.battery)} %</span>
-            {#if c.battery_empty && c.battery_empty !== '00:00:00'}<span class="muted">leer in {c.battery_empty}</span>{/if}</div>
+          <div class="bat"><span>{$t('Batterie')}</span><div class="meter sm"><i style="width:{c.battery}%;background:{C.ok}"></i></div><span class="num">{Math.round(c.battery)} %</span>
+            {#if c.battery_empty && c.battery_empty !== '00:00:00'}<span class="muted">{$t('leer in {t}', { t: c.battery_empty })}</span>{/if}</div>
         {/if}
         {#if hist[c.id]}<div class="ch"><LineChart series={hist[c.id]} unit="MW" height={170} area /></div>{/if}
       </div>
-    {:else}<p class="muted">Keine Stromnetze gefunden.</p>{/each}
+    {:else}<p class="muted">{$t('Keine Stromnetze gefunden.')}</p>{/each}
   </div>
   <div class="seg">
-    {#each [[21600, '6 h'], [86400, '24 h'], [604800, '7 Tage'], [2592000, '30 Tage']] as [s, l]}<button class:on={range === s} onclick={() => (range = +s)}>{l}</button>{/each}
+    {#each [[21600, '6 h'], [86400, '24 h'], [604800, $t('7 Tage')], [2592000, $t('30 Tage')]] as [s, l]}<button class:on={range === s} onclick={() => (range = +s)}>{l}</button>{/each}
   </div>
 
   <div class="grid2" style="margin-top:16px">
     <div class="panel card">
-      <h2>Kraftwerke</h2>
+      <h2>{$t('Kraftwerke')}</h2>
       <table class="t">
-        <thead><tr><th>Typ</th><th>Brennstoff</th><th class="n">Anzahl</th><th class="n">Leistung</th><th class="n">Bedarf /min</th><th class="n">Puffer reicht</th></tr></thead>
+        <thead><tr><th>{$t('Typ')}</th><th>{$t('Brennstoff')}</th><th class="n">{$t('Anzahl')}</th><th class="n">{$t('Leistung')}</th><th class="n">{$t('Bedarf /min')}</th><th class="n">{$t('Puffer reicht')}</th></tr></thead>
         <tbody>
           {#each gens as g}
             <tr class="click" onclick={() => toMap('generator:' + g.list[0].id, g.list[0].pos[0], g.list[0].pos[1])}>
@@ -107,17 +108,17 @@
           {/each}
         </tbody>
       </table>
-      <p class="muted small">„Puffer reicht“ = kürzeste Laufzeit eines Generators aus seinem eigenen Brennstofflager, ohne Nachschub.</p>
+      <p class="muted small">{$t('„Puffer reicht“ = kürzeste Laufzeit eines Generators aus seinem eigenen Brennstofflager, ohne Nachschub.')}</p>
     </div>
     <div class="panel card">
-      <h2>Brennstoff-Versorgung</h2>
+      <h2>{$t('Brennstoff-Versorgung')}</h2>
       {#each fuelBalance as b}
         {@const ok = b.prod >= (b.need + b.other) * .98}
         <div class="fb"><span>{$tn(b.fuel)}</span>
-          <span class="num">{fmtNum(b.prod)} erzeugt / {fmtNum(b.need)} verbrannt{b.other > .5 ? ' + ' + fmtNum(b.other) + ' in Maschinen' : ''}</span>
-          <span class="tag" style="color:{ok ? C.ok : C.warn};border-color:{ok ? '#2b5a44' : '#5a4b1f'}">{ok ? 'gedeckt' : 'Lager schrumpft'}</span></div>
-      {:else}<p class="muted">Keine Brennstoff-Kraftwerke.</p>{/each}
-      <p class="muted small">Vergleicht die Produktion der Ware mit dem Verbrauch aller laufenden Generatoren. Liegt die Produktion darunter, zehren die Kraftwerke vom Lager.</p>
+          <span class="num">{$t('{p} erzeugt / {n} verbrannt', { p: fmtNum(b.prod), n: fmtNum(b.need) })}{b.other > .5 ? ' + ' + $t('{n} in Maschinen', { n: fmtNum(b.other) }) : ''}</span>
+          <span class="tag" style="color:{ok ? C.ok : C.warn};border-color:{ok ? '#2b5a44' : '#5a4b1f'}">{ok ? $t('gedeckt') : $t('Lager schrumpft')}</span></div>
+      {:else}<p class="muted">{$t('Keine Brennstoff-Kraftwerke.')}</p>{/each}
+      <p class="muted small">{$t('Vergleicht die Produktion der Ware mit dem Verbrauch aller laufenden Generatoren. Liegt die Produktion darunter, zehren die Kraftwerke vom Lager.')}</p>
     </div>
   </div>
 </div>

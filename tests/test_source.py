@@ -68,7 +68,7 @@ def test_default_is_saves_folder(saves):
 def test_describe_hides_password():
     d = source.describe('sftp://nutzer:geheim@host.example:2022/pfad')
     assert 'geheim' not in d and 'nutzer@host.example:2022/pfad' in d
-    assert source.describe('/srv/saves') == 'Ordner /srv/saves'
+    assert source.describe('/srv/saves') == 'folder /srv/saves'
 
 
 def test_api_time():

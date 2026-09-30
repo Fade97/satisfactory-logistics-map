@@ -56,9 +56,9 @@ def frm_status(ok, err=None):
     if ok != ST.frm_ok or ST.frm_since is None:
         ST.frm_since = time.time()
         if ST.frm_ok and not ok:
-            DB.event('system', 'warn', 'Live-Daten (FRM) ausgefallen — Karte läuft aus dem Save weiter', ref='frm')
+            DB.event('system', 'warn', 'Live data (FRM) lost — the map continues from the save', ref='frm')
         elif ok and ST.frm_since and ST.save_meta:
-            DB.event('system', 'info', 'Live-Daten (FRM) wieder da', ref='frm')
+            DB.event('system', 'info', 'Live data (FRM) is back', ref='frm')
     ST.frm_ok, ST.frm_error = ok, (str(err)[:160] if err else None)
 
 

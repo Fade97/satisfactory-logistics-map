@@ -1,4 +1,4 @@
-# Issue-Entwurf für porisius/FicsitRemoteMonitoring
+# Issue draft for porisius/FicsitRemoteMonitoring
 
 **Titel:** Dedicated server: HTTP API returns "World not ready" (503) permanently after the daily session restart (ServerTravel)
 

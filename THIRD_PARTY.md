@@ -1,19 +1,19 @@
-# Fremde Inhalte
+# Third-party content
 
-Die MIT-Lizenz in `LICENSE` gilt für den eigenen Code. Diese Dateien stammen aus anderen Quellen und behalten deren Lizenz:
+The MIT license in `LICENSE` applies to the project's own code. These files come from other sources and keep their licenses:
 
-| Datei | Quelle | Lizenz |
+| File | Source | License |
 |---|---|---|
-| `frontend/public/map.jpg` | Spielkarte aus dem [Satisfactory Wiki](https://satisfactory.wiki.gg) (Inhalte © Coffee Stain Studios) | CC BY-NC-SA — Namensnennung, nicht kommerziell, Weitergabe unter gleichen Bedingungen; Quellenangabe steht in der Kartenlegende |
-| `gamedata/data1.0.json` | [SatisfactoryTools](https://github.com/greeny/SatisfactoryTools) (Rezepte, Gebäude, Raten) | MIT |
-| `gamedata/resource_nodes.json` | satisfactory-savegame-prometheus-exporter (Rohstoffknoten mit Reinheit) | MIT |
-| `gamedata/recipe_paths.json` | [ficsit/source-data](https://github.com/ficsit) (Rezept-Klassenpfade), ergänzt aus eigenen Saves | Apache-2.0 |
-| `frontend/src/lib/names_de.json` | [AyKarambo/Ficsit.Schematics](https://github.com/AyKarambo/Ficsit.Schematics) (deutsche Warennamen) | MIT |
-| `gamedata/templates/*.sbp` | Blueprints von Spielern des Ursprungsservers, als Vorlage für den Blueprint-Export | keine eigene Lizenz angegeben |
+| `frontend/public/map.jpg` | game map from the [Satisfactory Wiki](https://satisfactory.wiki.gg) (content © Coffee Stain Studios) | CC BY-NC-SA — attribution, non-commercial, share alike; attribution is given in the map legend |
+| `gamedata/data1.0.json` | [SatisfactoryTools](https://github.com/greeny/SatisfactoryTools) (recipes, buildings, rates) | MIT |
+| `gamedata/resource_nodes.json` | satisfactory-savegame-prometheus-exporter (resource nodes with purity) | MIT |
+| `gamedata/recipe_paths.json` | [ficsit/source-data](https://github.com/ficsit) (recipe class paths), extended from our own saves | Apache-2.0 |
+| `frontend/src/lib/names_de.json` | [AyKarambo/Ficsit.Schematics](https://github.com/AyKarambo/Ficsit.Schematics) (German item names) | MIT |
+| `gamedata/templates/*.sbp` | blueprints by players of the original server, used as templates for the blueprint export | no license specified |
 
-Die Wortmarke in `docs/logo/` ist aus den Umrissen von Barlow Condensed (SIL OFL 1.1) konstruiert.
+The wordmark in `docs/logo/` is constructed from the outlines of Barlow Condensed (SIL OFL 1.1).
 
-Über npm eingebunden (nicht im Repo): three.js (MIT), Svelte (MIT), Barlow/Barlow Condensed über @fontsource (SIL OFL 1.1).
+Included via npm (not in the repo): three.js (MIT), Svelte (MIT), Barlow/Barlow Condensed via @fontsource (SIL OFL 1.1).
 
-Satisfactory, FICSIT und zugehörige Namen und Grafiken sind Eigentum von Coffee Stain Studios. Dieses Projekt ist
-nicht offiziell und steht in keiner Verbindung zu Coffee Stain Studios.
+Satisfactory, FICSIT and related names and graphics are the property of Coffee Stain Studios. This project is
+not official and is not affiliated with Coffee Stain Studios.

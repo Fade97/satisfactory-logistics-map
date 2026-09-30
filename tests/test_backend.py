@@ -50,7 +50,7 @@ def test_machine_fields(fac):
 
 
 def test_extractors_have_output(fac):
-    ex = [m for m in fac['machines'] if (m.get('recipe') or '').startswith('Abbau')]
+    ex = [m for m in fac['machines'] if (m.get('recipe') or '').startswith(factory.EXTRACT)]
     assert len(ex) >= 100
     # Erze aus Knoten: Reinheit bekannt, Menge > 0 (Wasserpumpen haben keinen Knoten)
     ores = [m for m in ex if m['cls'] == 'Build_MinerMk2_C']

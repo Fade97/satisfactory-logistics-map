@@ -117,7 +117,7 @@ def solve(targets, recipes, surplus=None, exclude=(), goal='raw', max_clock=1.0,
     bounds = [(0, None)] * (n_r + n_s) + [(0, surplus[k]) for k in sur]
     res = linprog(c, A_ub=-A, b_ub=-b, bounds=bounds, method='highs')
     if not res.success:
-        return dict(ok=False, error='Mit den erlaubten Rezepten nicht herstellbar' if res.status == 2 else res.message)
+        return dict(ok=False, error='Not possible with the allowed recipes' if res.status == 2 else res.message)
     x = res.x
     steps = []
     for j, r in enumerate(rs):

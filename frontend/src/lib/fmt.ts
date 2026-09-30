@@ -17,13 +17,16 @@ export const STATE_COLOR: Record<string, string> = {
   'läuft': C.ok, 'teilweise': C.warn, 'steht': C.bad, 'pausiert': '#8f8a82', 'aus': '#4a4d52',
 };
 
-const nf1 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 1 });
-const nf0 = new Intl.NumberFormat('de-DE', { maximumFractionDigits: 0 });
+import { locale, tr } from './i18n';
+
+// Zahlen im Format der Sprache (ein Sprachwechsel lädt die Seite neu, daher reicht es, das Format einmal zu bauen)
+const nf1 = new Intl.NumberFormat(locale(), { maximumFractionDigits: 1 });
+const nf0 = new Intl.NumberFormat(locale(), { maximumFractionDigits: 0 });
 export function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '–';
   const a = Math.abs(v);
-  if (a >= 1e6) return nf1.format(v / 1e6) + ' Mio';
-  if (a >= 10000) return nf1.format(v / 1000) + ' Tsd';
+  if (a >= 1e6) return nf1.format(v / 1e6) + tr(' Mio');
+  if (a >= 10000) return nf1.format(v / 1000) + tr(' Tsd');
   if (a >= 100) return nf0.format(v);
   return nf1.format(v);
 }
@@ -32,15 +35,15 @@ export function ago(t: number | string | null | undefined): string {
   if (!t) return '–';
   const ms = typeof t === 'number' ? t * 1000 : new Date(t).getTime();
   const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 60) return 'gerade eben';
-  if (s < 3600) return 'vor ' + Math.round(s / 60) + ' min';
-  if (s < 86400) return 'vor ' + Math.round(s / 3600) + ' h';
-  return 'vor ' + Math.round(s / 86400) + ' Tagen';
+  if (s < 60) return tr('gerade eben');
+  if (s < 3600) return tr('vor {n} min', { n: Math.round(s / 60) });
+  if (s < 86400) return tr('vor {n} h', { n: Math.round(s / 3600) });
+  return tr('vor {n} Tagen', { n: Math.round(s / 86400) });
 }
 export function dur(min: number | null | undefined): string {
   if (min === null || min === undefined) return '–';
   if (min < 60) return Math.round(min) + ' min';
   if (min < 1440) return nf1.format(min / 60) + ' h';
-  return nf1.format(min / 1440) + ' Tage';
+  return tr('{n} Tage', { n: nf1.format(min / 1440) });
 }
-export const clock = (t: number) => new Date(t * 1000).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+export const clock = (t: number) => new Date(t * 1000).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });

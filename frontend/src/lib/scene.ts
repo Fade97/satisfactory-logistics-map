@@ -2,17 +2,19 @@
 import type { MapView, MapObj } from './mapview';
 import type { Stations, Live, Factory, Geo, Node, Pin } from './types';
 import { C, machineColor } from './fmt';
+import { tr, lxr } from './i18n';
 
+// Anzeigenamen per tr(): ein Sprachwechsel lädt die Seite neu, daher reicht die Übersetzung beim Laden
 export const LAYERS: [string, string, boolean][] = [
-  ['mapimg', 'Spielkarte', true], ['detail', 'Fundamente & Wände (ab Zoom)', true], ['rails', 'Gleisnetz', true], ['pipes', 'Rohrleitungen', false],
-  ['belts', 'Förderbänder', false], ['power', 'Stromleitungen', false],
-  ['stations', 'Stationen', true], ['routes', 'Zugrouten', true], ['vehicles', 'Fahrzeuge', true],
-  ['players', 'Spieler', true], ['trails', 'Spielerspuren (2 h)', true],
-  ['factories', 'Fabriken (Umriss nach Zustand)', true], ['heat', 'Heatmap: Materialmangel', false],
-  ['machines', 'Maschinen', false], ['starved', 'Maschinen mit Materialmangel', false],
-  ['generators', 'Generatoren', false], ['nopower', 'Ohne Stromanschluss', true], ['nodes', 'Rohstoffknoten', false], ['pins', 'Notizen', true],
-  ['c_somersloop', 'Somersloops (fehlend)', false], ['c_mercer', 'Mercer Spheres (fehlend)', false],
-  ['c_slug', 'Power Slugs (fehlend)', false], ['c_droppod', 'Absturzstellen (offen)', false],
+  ['mapimg', tr('Spielkarte'), true], ['detail', tr('Fundamente & Wände (ab Zoom)'), true], ['rails', tr('Gleisnetz'), true], ['pipes', tr('Rohrleitungen'), false],
+  ['belts', tr('Förderbänder'), false], ['power', tr('Stromleitungen'), false],
+  ['stations', tr('Stationen'), true], ['routes', tr('Zugrouten'), true], ['vehicles', tr('Fahrzeuge'), true],
+  ['players', tr('Spieler'), true], ['trails', tr('Spielerspuren (2 h)'), true],
+  ['factories', tr('Fabriken (Umriss nach Zustand)'), true], ['heat', tr('Heatmap: Materialmangel'), false],
+  ['machines', tr('Maschinen'), false], ['starved', tr('Maschinen mit Materialmangel'), false],
+  ['generators', tr('Generatoren'), false], ['nopower', tr('Ohne Stromanschluss'), true], ['nodes', tr('Rohstoffknoten'), false], ['pins', tr('Notizen'), true],
+  ['c_somersloop', tr('Somersloops (fehlend)'), false], ['c_mercer', tr('Mercer Spheres (fehlend)'), false],
+  ['c_slug', tr('Power Slugs (fehlend)'), false], ['c_droppod', tr('Absturzstellen (offen)'), false],
 ];
 
 export const CIRCUIT_COLORS = ['#e2b93b', '#b58be8', '#4cc38a', '#e07b9b', '#6cc4d8', '#c9a26b'];
@@ -55,7 +57,7 @@ export function factoryObjs(f: Factory): MapObj[] {
     const starved = m.state === 'steht' && m.block !== 'voll';
     if (m.nopower) {                                  // eigene, standardmäßig sichtbare Ebene: sofort auffällig
       out.push({ kind: 'machine', key: 'machine:' + m.id, x: m.pos[0], y: m.pos[1], z: m.z, r: 4.5, shape: 'diamond',
-        color: '#e5484d', ring: '#f5f2ea', label: m.name + ' ohne Strom', prio: 3, layer: 'nopower', data: m });
+        color: '#e5484d', ring: '#f5f2ea', label: tr('{name} ohne Strom', { name: m.name }), prio: 3, layer: 'nopower', data: m });
       continue;
     }
     out.push({
@@ -70,7 +72,7 @@ export function factoryObjs(f: Factory): MapObj[] {
   });
   for (const c of f.factories) out.push({
     kind: 'factory', key: 'factory:' + c.key, x: c.center[0], y: c.center[1], r: 0.01, shape: 'circle',
-    color: 'transparent', label: c.name, prio: 4, layer: 'factories', data: c, minK: .25,
+    color: 'transparent', label: lxr(c.name), prio: 4, layer: 'factories', data: c, minK: .25,
   });
   return out;
 }
@@ -80,7 +82,7 @@ export function nodeObjs(ns: Node[]): MapObj[] {
   return ns.map(n => ({
     kind: 'node', key: 'node:' + n.id, x: n.pos[0], y: n.pos[1], r: 4, shape: 'tri' as const,
     color: n.used ? '#6f6b64' : P[n.purity || ''] || '#9a968e', ring: n.used ? undefined : '#0c0d0e',
-    label: (n.item || '?') + (n.purity ? ' · ' + { pure: 'rein', normal: 'normal', impure: 'unrein' }[n.purity] : ''),
+    label: (n.item || '?') + (n.purity ? ' · ' + tr(({ pure: 'rein', normal: 'normal', impure: 'unrein' } as Record<string, string>)[n.purity]) : ''),
     prio: 1, layer: 'nodes', data: n,
   }));
 }
@@ -127,7 +129,7 @@ export function collectibleObjs(c: any): MapObj[] {
   for (const [k, list] of Object.entries(c?.open || {}) as [string, number[][]][]) {
     const [color, layer, shape] = CCOL[k] || ['#9a968e', 'c_slug', 'circle'];
     list.forEach((p, i) => out.push({ kind: 'collectible', key: 'c:' + k + ':' + i, x: p[0], y: p[1], z: p[2], r: k === 'somersloop' ? 5 : 3.5,
-      shape, color, ring: '#0c0d0e', label: c.labels?.[k], prio: 1, layer, data: { kind: k, label: c.labels?.[k], pos: p }, minK: k.startsWith('slug') ? .15 : 0 }));
+      shape, color, ring: '#0c0d0e', label: lxr(c.labels?.[k]), prio: 1, layer, data: { kind: k, label: lxr(c.labels?.[k]), pos: p }, minK: k.startsWith('slug') ? .15 : 0 }));
   }
   return out;
 }

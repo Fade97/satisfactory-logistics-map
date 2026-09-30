@@ -1,8 +1,8 @@
 {
-  "name": "Satisfactory · Logistikkarte",
-  "short_name": "Logistik",
-  "description": "Live-Karte, Produktion, Strom und Logistik eines Satisfactory-Servers",
-  "start_url": "/#/lage",
+  "name": "Satisfactory · Logistics Map",
+  "short_name": "Logistics",
+  "description": "Live map, production, power and logistics for a Satisfactory dedicated server",
+  "start_url": "/#/overview",
   "scope": "/",
   "display": "standalone",
   "background_color": "#1b1c1e",

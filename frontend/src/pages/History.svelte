@@ -4,6 +4,7 @@
   import LineChart from '../lib/LineChart.svelte';
   import ItemPicker from '../lib/ItemPicker.svelte';
   import { tn } from '../lib/names';
+  import { t, tr, lx, locale } from '../lib/i18n';
 
   let range = $state(86400);
   let items = $state<string[]>(JSON.parse(localStorage.getItem('fgmap.histItems') || '[]'));
@@ -22,7 +23,7 @@
       prod = items.map((it, i) => ({ key: it, label: $tn(it), points: r.data['prod:' + it] || [], color: SERIES[i % SERIES.length] }));
     } else prod = [];
     const m = await series(['machines:läuft', 'machines:teilweise', 'machines:steht'], since);
-    machines = [['läuft', SERIES[2]], ['teilweise', SERIES[4]], ['steht', SERIES[5]]].map(([k, c]) => ({ key: k, label: k, points: m.data['machines:' + k] || [], color: c }));
+    machines = [['läuft', SERIES[2]], ['teilweise', SERIES[4]], ['steht', SERIES[5]]].map(([k, c]) => ({ key: k, label: tr(k), points: m.data['machines:' + k] || [], color: c }));
     const g = await series(['count:*'], Date.now() / 1000 - 400 * 86400);
     growth = g.data;
   }
@@ -35,29 +36,29 @@
 </script>
 
 <div class="page">
-  <h1>Verlauf</h1>
-  <p class="src">Minutenwerte der letzten 48 Stunden, danach Stundenmittel für 90 Tage, danach Tageswerte. Aufgezeichnet seit {growth['count:machines']?.[0] ? new Date(growth['count:machines'][0][0] * 1000).toLocaleDateString('de-DE') : 'heute'}.</p>
+  <h1>{$t('Verlauf')}</h1>
+  <p class="src">{$t('Minutenwerte der letzten 48 Stunden, danach Stundenmittel für 90 Tage, danach Tageswerte. Aufgezeichnet seit {date}.', { date: growth['count:machines']?.[0] ? new Date(growth['count:machines'][0][0] * 1000).toLocaleDateString(locale()) : $t('heute') })}</p>
 
   <div class="kpis">
-    <div class="kpi panel"><div class="v">{fmtNum(($status?.save?.playtime || 0) / 3600)} h</div><div class="l">Spielzeit</div></div>
-    <div class="kpi panel"><div class="v">{$factory?.machines.length ?? '–'}</div><div class="l">Maschinen{delta('machines') ? ' · ' + (delta('machines')! > 0 ? '+' : '') + delta('machines') + ' seit Aufzeichnung' : ''}</div></div>
-    <div class="kpi panel"><div class="v">{fmtNum(last('rail_km'))} km</div><div class="l">Gleise</div></div>
-    <div class="kpi panel"><div class="v">{fmtNum(last('belt_km'))} km</div><div class="l">Förderbänder</div></div>
-    <div class="kpi panel"><div class="v">{$progress?.n_schematics ?? '–'}</div><div class="l">Freischaltungen · {$progress?.phase || ''}</div></div>
+    <div class="kpi panel"><div class="v">{fmtNum(($status?.save?.playtime || 0) / 3600)} h</div><div class="l">{$t('Spielzeit')}</div></div>
+    <div class="kpi panel"><div class="v">{$factory?.machines.length ?? '–'}</div><div class="l">{$t('Maschinen')}{delta('machines') ? ' · ' + $t('{d} seit Aufzeichnung', { d: (delta('machines')! > 0 ? '+' : '') + delta('machines') }) : ''}</div></div>
+    <div class="kpi panel"><div class="v">{fmtNum(last('rail_km'))} km</div><div class="l">{$t('Gleise')}</div></div>
+    <div class="kpi panel"><div class="v">{fmtNum(last('belt_km'))} km</div><div class="l">{$t('Förderbänder')}</div></div>
+    <div class="kpi panel"><div class="v">{$progress?.n_schematics ?? '–'}</div><div class="l">{$t('Freischaltungen')}{$progress?.phase ? ' · ' + $progress.phase : ''}</div></div>
   </div>
 
   <div class="seg">
-    {#each [[10800, '3 h'], [86400, '24 h'], [172800, '48 h'], [604800, '7 Tage'], [2592000, '30 Tage'], [7776000, '90 Tage']] as [s, l]}
+    {#each [[10800, '3 h'], [86400, '24 h'], [172800, '48 h'], [604800, $t('{n} Tage', { n: 7 })], [2592000, $t('{n} Tage', { n: 30 })], [7776000, $t('{n} Tage', { n: 90 })]] as [s, l]}
       <button class:on={range === s} onclick={() => (range = +s)}>{l}</button>
     {/each}
   </div>
 
   <div class="panel card">
-    <div class="hd"><h2>Produktion je Ware</h2>
+    <div class="hd"><h2>{$t('Produktion je Ware')}</h2>
       <div class="pick">
-        {#each items as it, i}<span class="chip"><i style="background:{SERIES[i % SERIES.length]}"></i>{$tn(it)}<button onclick={() => (items = items.filter(x => x !== it))} aria-label="{it} entfernen">✕</button></span>{/each}
+        {#each items as it, i}<span class="chip"><i style="background:{SERIES[i % SERIES.length]}"></i>{$tn(it)}<button onclick={() => (items = items.filter(x => x !== it))} aria-label={$t('{item} entfernen', { item: $tn(it) })}>✕</button></span>{/each}
         {#if items.length < 6}
-          <span class="add"><ItemPicker items={all.filter(i => !items.includes(i))} placeholder="Ware hinzufügen" clearOnPick onpick={v => (items = [...items, v])} /></span>
+          <span class="add"><ItemPicker items={all.filter(i => !items.includes(i))} placeholder={$t('Ware hinzufügen')} clearOnPick onpick={v => (items = [...items, v])} /></span>
         {/if}
       </div>
     </div>
@@ -65,19 +66,19 @@
   </div>
 
   <div class="grid2" style="margin-top:16px">
-    <div class="panel card"><h2>Maschinenzustand</h2><LineChart series={machines} unit="Maschinen" height={200} /></div>
-    <div class="panel card"><h2>Fabrikwachstum</h2>
-      <LineChart series={[{ key: 'm', label: 'Maschinen', points: G('machines') }]} height={200} />
+    <div class="panel card"><h2>{$t('Maschinenzustand')}</h2><LineChart series={machines} unit={$t('Maschinen')} height={200} /></div>
+    <div class="panel card"><h2>{$t('Fabrikwachstum')}</h2>
+      <LineChart series={[{ key: 'm', label: $t('Maschinen'), points: G('machines') }]} height={200} />
     </div>
   </div>
 
   <div class="panel card" style="margin-top:16px">
-    <h2>Änderungsprotokoll</h2>
-    <p class="muted small">Vergleich aufeinanderfolgender Autosaves: gebaute und abgerissene Maschinen, dazu neue Freischaltungen.</p>
+    <h2>{$t('Änderungsprotokoll')}</h2>
+    <p class="muted small">{$t('Vergleich aufeinanderfolgender Autosaves: gebaute und abgerissene Maschinen, dazu neue Freischaltungen.')}</p>
     <ol class="log">
       {#each builds as e (e.id)}
-        <li><span class="t num">{new Date(e.t * 1000).toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} {clock(e.t)}</span><span>{e.text}</span></li>
-      {:else}<li class="muted">Noch keine Änderungen erfasst. Der erste Vergleich kommt mit dem nächsten Autosave, nach etwa 5 Minuten.</li>{/each}
+        <li><span class="t num">{new Date(e.t * 1000).toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })} {clock(e.t)}</span><span>{$lx(e.text)}</span></li>
+      {:else}<li class="muted">{$t('Noch keine Änderungen erfasst. Der erste Vergleich kommt mit dem nächsten Autosave, nach etwa 5 Minuten.')}</li>{/each}
     </ol>
   </div>
 </div>

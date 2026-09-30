@@ -6,6 +6,8 @@
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
   import type { Machine } from './types';
   import { machineColor } from './fmt';
+  import { t, tr, lx } from './i18n';
+  import { tn } from './names';
 
   let { machines, flow = [], onclose, title = '' }: { machines: Machine[]; flow?: number[][][]; onclose: () => void; title?: string } = $props();
 
@@ -32,11 +34,11 @@
     try {
       renderer = new THREE.WebGLRenderer({ antialias: !mobile, powerPreference: 'low-power' });
     } catch (e) {
-      failed = 'Dieses Gerät stellt kein WebGL bereit (' + ((e as Error)?.message || e) + ').'; return;
+      failed = tr('Dieses Gerät stellt kein WebGL bereit ({err}).', { err: (e as Error)?.message || e }); return;
     }
     // Handy: halbe Pixeldichte reicht für Klötze und spart GPU-Speicher (sonst verliert Safari den Kontext)
     renderer.setPixelRatio(mobile ? Math.min(1.5, devicePixelRatio) : Math.min(2, devicePixelRatio));
-    renderer.domElement.addEventListener('webglcontextlost', ev => { ev.preventDefault(); failed = 'Die Grafik wurde vom Gerät zurückgesetzt (zu wenig Grafikspeicher).'; cancelAnimationFrame(raf); });
+    renderer.domElement.addEventListener('webglcontextlost', ev => { ev.preventDefault(); failed = tr('Die Grafik wurde vom Gerät zurückgesetzt (zu wenig Grafikspeicher).'); cancelAnimationFrame(raf); });
     host.appendChild(renderer.domElement);
     scene.add(new THREE.HemisphereLight('#e8e6e1', '#2a2620', 1.6));
     const sun = new THREE.DirectionalLight('#ffffff', 1.4); sun.position.set(-300, 600, -200); scene.add(sun);
@@ -135,12 +137,12 @@
   onDestroy(() => { cancelAnimationFrame(raf); ro?.disconnect(); renderer?.dispose(); removeEventListener('keydown', esc); });
 </script>
 
-<div class="wrap f3d" use:portal role="dialog" aria-modal="true" aria-label="3D-Ansicht">
-  <div class="bar"><b>{title}</b><span class="muted">{machines.length} Maschinen · ziehen dreht, Rad/Pinch zoomt, rechte Maustaste verschiebt</span>
-    <button class="btn" onclick={onclose}>Schließen</button></div>
-  {#if failed}<div class="fail">{failed} Die 2D-Karte funktioniert weiterhin.</div>{/if}
+<div class="wrap f3d" use:portal role="dialog" aria-modal="true" aria-label={$t('3D-Ansicht')}>
+  <div class="bar"><b>{$lx(title)}</b><span class="muted">{$t('{n} Maschinen · ziehen dreht, Rad/Pinch zoomt, rechte Maustaste verschiebt', { n: machines.length })}</span>
+    <button class="btn" onclick={onclose}>{$t('Schließen')}</button></div>
+  {#if failed}<div class="fail">{failed} {$t('Die 2D-Karte funktioniert weiterhin.')}</div>{/if}
   <div class="host" bind:this={host}>
-    {#if tip}<div class="tip" style="left:{tip.x + 12}px;top:{tip.y + 12}px"><b>{tip.m.recipe || tip.m.name}</b><span>{tip.m.name} · {tip.m.state} {tip.m.pct} % · {tip.m.z} m</span></div>{/if}
+    {#if tip}<div class="tip" style="left:{tip.x + 12}px;top:{tip.y + 12}px"><b>{$tn(tip.m.recipe || tip.m.name)}</b><span>{$tn(tip.m.name)} · {$t(tip.m.state)} {tip.m.pct} % · {tip.m.z} m</span></div>{/if}
   </div>
 </div>
 
