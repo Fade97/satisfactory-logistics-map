@@ -1,33 +1,33 @@
-"""Fabrik aus dem Save: Maschinen mit Rezept und Soll-Raten, Stromnetze, Netzgeometrie, Rohstoffknoten.
+"""Factory from the save: machines with recipe and nominal rates, power grids, network geometry, resource nodes.
 
-Liefert dasselbe wie geo.py über FRM, nur ohne Mod — und dazu, was FRM nicht kennt:
-Stromnetz je Gebäude, Rohstoffknoten mit Reinheit, Erbauer, Leitungen.
-Soll-Raten kommen aus gamedata/data1.0.json (SatisfactoryTools, MIT), die Reinheit der
-Knoten aus gamedata/resource_nodes.json (aus satisfactory-savegame-prometheus-exporter, MIT).
+Provides the same as geo.py via FRM, but without the mod — plus what FRM does not know:
+power grid per building, resource nodes with purity, builder, power lines.
+Nominal rates come from gamedata/data1.0.json (SatisfactoryTools, MIT), node purity
+from gamedata/resource_nodes.json (from satisfactory-savegame-prometheus-exporter, MIT).
 
-    python3 factory.py [save.sav]      # Kurzstatistik
+    python3 factory.py [save.sav]      # short statistics
 """
 import collections, json, math, os, sys
 import sbp, sav, stations
 
-EXTRACT = 'Extracting '                  # Rezeptname von Extraktoren: 'Extracting Iron Ore'
+EXTRACT = 'Extracting '                  # recipe name of extractors: 'Extracting Iron Ore'
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 GD = json.load(open(os.path.join(HERE, 'gamedata', 'data1.0.json')))
 NODES = json.load(open(os.path.join(HERE, 'gamedata', 'resource_nodes.json')))
 ITEMS, RECIPES, BUILDINGS, GENS = GD['items'], GD['recipes'], GD['buildings'], GD['generators']
-# Knotentypen, die der Datensatz anders nennt als die Ware
+# node types the dataset names differently from the item
 NODE_ITEM = {'Desc_LiquidOilWell_C': 'Desc_LiquidOil_C', 'Desc_Geyser_C': None}
 
 PURITY = {0.5: 'impure', 1.0: 'normal', 2.0: 'pure'}
 EXTRACTORS = {'Build_MinerMk1_C', 'Build_MinerMk2_C', 'Build_MinerMk3_C', 'Build_OilPump_C',
               'Build_WaterPump_C', 'Build_FrackingExtractor_C'}
 BELT_SPEED = {'Mk1': 60, 'Mk2': 120, 'Mk3': 270, 'Mk4': 480, 'Mk5': 780, 'Mk6': 1200}
-NEVER = 3e38                                   # mTimeSinceStartStopProducing, wenn nie umgeschaltet
+NEVER = 3e38                                   # mTimeSinceStartStopProducing if never toggled
 
 
 def item(path):
-    """Klassenname → englischer Anzeigename aus den Spieldaten (Fallback: stations.item_name)."""
+    """Class name → English display name from the game data (fallback: stations.item_name)."""
     if not path:
         return None
     k = path.split('.')[-1]
@@ -45,7 +45,7 @@ def building_name(cls):
 
 
 class Save:
-    """Index mit Klassen-Lookup und gecachten Property-Dicts."""
+    """Index with class lookup and cached property dicts."""
 
     def __init__(self, path):
         self.path = path
@@ -72,7 +72,7 @@ class Save:
         return [n for c, ns in self.by.items() if pred(c) for n in ns]
 
     def inventory(self, comp):
-        """[(item-pfad, menge)] einer FGInventoryComponent; Fluide in m³."""
+        """[(item path, amount)] of an FGInventoryComponent; fluids in m³."""
         out = collections.Counter()
         for st in self.props(comp).get('mInventoryStacks', []) if comp else []:
             d = {p['name']: p['value'] for p in st}
@@ -83,12 +83,12 @@ class Save:
         return list(out.items())
 
 
-def _xy(p):                                      # cm → m, gerundet
+def _xy(p):                                      # cm → m, rounded
     return [round(p[0] / 100), round(p[1] / 100)]
 
 
 def _circuits(S):
-    """Komponentenpfad → Circuit-ID (FGPowerCircuit.mComponents)."""
+    """Component path → circuit ID (FGPowerCircuit.mComponents)."""
     comp = {}
     for n in S.by['FGPowerCircuit']:
         d = S.props(n)
@@ -106,11 +106,11 @@ def _owner_circuit(circ, name):
 
 
 def _players(S):
-    """PlayerInfoHandle-Bytes (BuiltBy) → Spielername, nur wenn eindeutig.
+    """PlayerInfoHandle bytes (BuiltBy) → player name, only if unambiguous.
 
-    Zuordnung über BP_PlayerState_C.mPlatformPlayerInfoHandle → mOwnedPawn → mCachedPlayerName.
-    Im Save teilen sich mehrere PlayerStates denselben Handle (Stand 29.09.2026: Handle 0 gehört
-    zu zwei Zuständen) — solche Handles bleiben unbekannt statt falsch zugeordnet.
+    Mapping via BP_PlayerState_C.mPlatformPlayerInfoHandle → mOwnedPawn → mCachedPlayerName.
+    Several PlayerStates in the save share the same handle (as of 2026-09-29: handle 0 belongs
+    to two states) — such handles stay unknown rather than being assigned wrongly.
     """
     names = collections.defaultdict(set)
     for ps in S.by['BP_PlayerState_C']:
@@ -122,7 +122,7 @@ def _players(S):
 
 
 def machine_state(d, rec, cls):
-    """Zustand + Grund aus Save-Flags. Die Produktivität misst das Spiel über 5-Minuten-Fenster."""
+    """State + reason from save flags. The game measures productivity over 5-minute windows."""
     last_d = d.get('mLastProductivityMeasurementDuration') or 0
     last_p = d.get('mLastProductivityMeasurementProduceDuration') or 0
     cur_d = d.get('mCurrentProductivityMeasurementDuration') or 0
@@ -141,7 +141,7 @@ def machine_state(d, rec, cls):
 
 
 def _reason(S, name, d, rec):
-    """Warum steht eine Maschine? Heuristik aus den Inventaren."""
+    """Why is a machine stopped? Heuristic based on its inventories."""
     if not rec:
         return None
     r = RECIPES.get(rec)
@@ -201,7 +201,7 @@ def machines(S, circ, who):
             elif rec in RECIPES:
                 r = RECIPES[rec]
                 k = 60.0 / r['time'] * clock
-                liq = lambda x: 1.0          # Rezeptmengen im Datensatz sind bei Fluiden bereits m³
+                liq = lambda x: 1.0          # recipe amounts in the dataset are already m³ for fluids
                 m['recipe'] = r['name']
                 m['alt'] = bool(r.get('alternate'))
                 m['out'] = [dict(item=ITEMS[p['item']]['name'], max=round(p['amount'] / liq(p['item']) * k, 2)) for p in r['products']]
@@ -225,9 +225,9 @@ def generators(S, circ, who):
             fuel = (d.get('mCurrentFuelClass') or ['', ''])[1]
             inv = S.inventory((d.get('mFuelInventory') or ['', ''])[1])
             clock = float(d.get('mCurrentPotential') or 1.0)
-            cap = g.get('powerProduction', 20 if 'Biomass' in c else 0) * clock ** (1 / 1.3)  # vereinfacht
+            cap = g.get('powerProduction', 20 if 'Biomass' in c else 0) * clock ** (1 / 1.3)  # simplified
             ev = ITEMS.get(fuel.split('.')[-1], {}).get('energyValue') if fuel else None
-            # energyValue in MJ je Stück bzw. je m³ → Verbrauch/min = MW × 60 ÷ MJ
+            # energyValue in MJ per item or per m³ → consumption/min = MW × 60 ÷ MJ
             per_min = (cap * 60 / ev) if ev else None
             state, pct = machine_state(d, 'gen', c)
             out.append(dict(id=sbp.short(n), cls=c, name=building_name(c) if 'Integrated' not in c else 'Biomass Burner (HUB)',
@@ -250,7 +250,7 @@ def batteries(S, circ):
 
 
 def power_lines(S, circ):
-    """Leitungen als Segmente [x1,y1,x2,y2,circuit] in Metern (aus mWireInstances)."""
+    """Power lines as segments [x1,y1,x2,y2,circuit] in metres (from mWireInstances)."""
     out = []
     for n in S.by['Build_PowerLine_C'] + S.by.get('Build_XmassLightsLine_C', []):
         locs = [p['value'] for p in S.raw_props(n) if p['name'] == 'mWireInstances']
@@ -262,7 +262,7 @@ def power_lines(S, circ):
             continue
         ob = sav.obj(S.idx, n)[1]
         cid = None
-        try:                                     # Trail: int32 0, (lvl, pfad) × 2 → Verbindungskomponenten
+        try:                                     # trail: int32 0, (lvl, path) × 2 → connection components
             r = sbp.R(ob['trail']); r.i32(); r.s(); a = r.s()
             cid = circ.get(a)
         except Exception:
@@ -272,7 +272,7 @@ def power_lines(S, circ):
 
 
 def _spline(S, n):
-    """Weltpunkte (m) der Spline eines Bands/Rohrs/Gleises."""
+    """World points (m) of the spline of a belt/pipe/rail."""
     h = S.idx[n][0]
     sp = S.props(n).get('mSplineData') or []
     x0, y0 = h['pos'][0], h['pos'][1]
@@ -298,8 +298,8 @@ def lines(S, pred, with_ids=False):
 
 
 def belt_items(S):
-    """Band-ID → Ware, die gerade darauf liegt (häufigste). Quelle: Rohtrail der FGConveyorChainActor —
-    dort stehen die Bänder der Kette und die Item-Pfade der Ladung. Leere Bänder fehlen."""
+    """Belt ID → item currently on it (most common). Source: raw trail of the FGConveyorChainActor —
+    it lists the belts of the chain and the item paths of the cargo. Empty belts are missing."""
     import re
     out = {}
     for c in [n for k, ns in S.by.items() if k.startswith('FGConveyorChainActor') for n in ns]:
@@ -315,7 +315,7 @@ def belt_items(S):
 
 
 def pipe_items(S):
-    """Rohr-ID → Flüssigkeit über das Rohrnetz (FGPipeNetwork.mFluidDescriptor ↔ mPipeNetworkID der Anschlüsse)."""
+    """Pipe ID → fluid via the pipe network (FGPipeNetwork.mFluidDescriptor ↔ mPipeNetworkID of the connections)."""
     fluid = {}
     for n in S.by['FGPipeNetwork']:
         d = S.props(n)
@@ -347,7 +347,7 @@ def resource_nodes(S, extractors):
 
 
 def circuits(mach, gens, bats):
-    """Stromnetze: Soll-Verbrauch der Maschinen vs. Erzeugung aus dem Save."""
+    """Power grids: nominal machine consumption vs. generation from the save."""
     C = collections.defaultdict(lambda: dict(prod=0.0, cap=0.0, use=0.0, max_use=0.0, n_mach=0, n_gen=0, battery=0.0, battery_cap=0.0))
     for m in mach:
         c = C[m['circuit']]
@@ -367,7 +367,7 @@ def circuits(mach, gens, bats):
 
 
 def progress(S):
-    """Freigeschaltete Meilensteine/Forschung und Projektphase."""
+    """Unlocked milestones/research and project phase."""
     sm = S.props(S.by['BP_SchematicManager_C'][0]) if S.by['BP_SchematicManager_C'] else {}
     sch = GD['schematics']
     names = []
@@ -389,7 +389,7 @@ def _len_km(ls):
 
 
 def header(path):
-    """Spielzeit (s) und Sessionname aus dem unkomprimierten Save-Kopf."""
+    """Play time (s) and session name from the uncompressed save header."""
     r = sbp.R(open(path, 'rb').read(4096))
     r.i32(); r.i32(); r.i32()
     r.s(); r.s(); r.s(); session = r.s()
@@ -401,15 +401,15 @@ STOP_CLS = ('TruckStation', 'TrainDocking', 'TrainStation', 'StorageContainer', 
 
 
 def machine_links(S, mids):
-    """Maschinenpaare, die über Bänder/Rohre/Splitter/Lifte direkt verbunden sind.
+    """Machine pairs directly connected via belts/pipes/splitters/lifts.
 
-    Lager, Stationen und Senken trennen: dahinter beginnt Logistik zwischen Fabriken.
-    Transportteile (alles außer Maschinen und Trennern) werden per Union-Find zu Netzen verschmolzen;
-    jede Maschine hängt an den Netzen ihrer Anschlüsse. Liefert [(id_a, id_b)] mit Kurz-IDs.
+    Storage, stations and sinks separate: beyond them begins logistics between factories.
+    Transport parts (everything except machines and separators) are merged into networks via union-find;
+    each machine is attached to the networks of its connections. Returns [(id_a, id_b)] with short IDs.
     """
     owner = lambda p: p.rsplit('.', 1)[0]
     stop, kind = {}, {}
-    def k(n):                                     # 'm' Maschine, 's' Trenner, 't' Transport
+    def k(n):                                     # 'm' machine, 's' separator, 't' transport
         if n not in kind:
             sid = sbp.short(n)
             c = sbp.short(S.idx[n][0]['cls']) if n in S.idx else ''
@@ -429,7 +429,7 @@ def machine_links(S, mids):
         while parent[a] != a:
             parent[a] = parent[parent[a]]; a = parent[a]
         return a
-    touch = collections.defaultdict(set)          # Transportnetz → Maschinen daran
+    touch = collections.defaultdict(set)          # transport network → attached machines
     direct = set()
     for a, b in edges:
         ka, kb = k(a), k(b)
@@ -450,7 +450,7 @@ def machine_links(S, mids):
     out = set(direct)
     for ms in touch.values():
         ms = sorted(ms)
-        if len(ms) > 400:                         # riesiges Sammelnetz: Stern statt aller Paare
+        if len(ms) > 400:                         # huge collector network: star instead of all pairs
             out.update((ms[0], x) for x in ms[1:])
             continue
         for i, x in enumerate(ms):
@@ -460,7 +460,7 @@ def machine_links(S, mids):
 
 
 def _flow(S):
-    """Pro Ware die Linienzüge der Bänder und Rohre, die sie transportieren (für „Warenfluss“ auf der Karte)."""
+    """Per item, the polylines of the belts and pipes carrying it (for "item flow" on the map)."""
     bi, pi = belt_items(S), pipe_items(S)
     out = collections.defaultdict(list)
     for pred, m in ((lambda c: c.startswith('Build_ConveyorBelt') or c.startswith('Build_ConveyorLift'), bi),
@@ -473,16 +473,16 @@ def _flow(S):
     return dict(out)
 
 
-COLLECTIBLES = {                              # Klasse → (Schlüssel, Anzeige)
+COLLECTIBLES = {                              # class → (key, display label)
     'BP_WAT1_C': ('somersloop', 'Somersloop'), 'BP_WAT2_C': ('mercer', 'Mercer Sphere'),
     'BP_Crystal_C': ('slug1', 'Blue Power Slug'), 'BP_Crystal_mk2_C': ('slug2', 'Yellow Power Slug'),
-    'BP_Crystal_mk3_C': ('slug3', 'Purple Power Slug'), 'BP_DropPod_C': ('droppod', 'Absturzstelle'),
+    'BP_Crystal_mk3_C': ('slug3', 'Purple Power Slug'), 'BP_DropPod_C': ('droppod', 'Crash Site'),
 }
 
 
 def collectibles(S):
-    """Noch nicht eingesammelte Sammelobjekte: Sie stehen als Actor im Save, eingesammelte fehlen dort
-    (landen in der Sammelliste des Levels). Absturzstellen bleiben stehen — geplündert via mHasBeenLooted."""
+    """Collectibles not picked up yet: they exist as actors in the save, collected ones are missing there
+    (they end up in the level's collected list). Crash sites remain — looted via mHasBeenLooted."""
     out = {k: [] for k, _ in COLLECTIBLES.values()}
     done = {k: 0 for k in out}
     for cls, (key, _) in COLLECTIBLES.items():
@@ -492,14 +492,14 @@ def collectibles(S):
                 done[key] += 1
                 continue
             out[key].append([round(p[0] / 100), round(p[1] / 100), round(p[2] / 100)])
-    # Gesamtzahl auf der Karte (Spielstand 1.0/1.1, Welt komplett aufgedeckt, nichts gesammelt — sat_sav_parse);
-    # Slugs zählt die Welt selbst: eingesammelte fehlen, Gesamt = offen + in der Sammelliste des Levels
+    # Total on the map (game version 1.0/1.1, world fully revealed, nothing collected — sat_sav_parse);
+    # slugs are counted by the world itself: collected ones are missing, total = open + in the level's collected list
     total = dict(somersloop=106, mercer=298, droppod=len(S.by.get('BP_DropPod_C', [])))
     return dict(open=out, looted_pods=done['droppod'], total=total, labels={k: v for k, v in COLLECTIBLES.values()})
 
 
 def storage(S):
-    """Lagerbestände je Container/Tank: Ware, Menge, Füllgrad, Position (für Übersicht und „Lager voll“)."""
+    """Stock per container/tank: item, amount, fill level, position (for the overview and "storage full")."""
     CAP = {'Build_StorageContainerMk1_C': 24, 'Build_StorageContainerMk2_C': 48, 'Build_CentralStorage_C': 0,
            'Build_StorageIntegrated_C': 0}
     out = []
@@ -511,7 +511,7 @@ def storage(S):
                 amt = float(d.get('mFluidBox') or 0)
                 cap = 2400.0 if 'Industrial' in cls else 400.0
                 inv = [(None, amt)] if amt else []
-                # Flüssigkeit des Tanks über das Rohrnetz seiner Anschlüsse
+                # tank fluid via the pipe network of its connections
                 fl = None
                 for k in ('ConnectionAny0', 'ConnectionAny1', 'PipelineConnection0', 'PipelineConnection1'):
                     nid = S.props(n + '.' + k).get('mPipeNetworkID') if n + '.' + k in S.idx else None
@@ -592,10 +592,10 @@ if __name__ == '__main__':
     t = time.time()
     f = build(sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, 'saves', 'latest.sav'))
     st = collections.Counter(m['state'] for m in f['machines'])
-    print('%.1fs · %d Maschinen %s · %d Generatoren · %d Netze · %d Leitungen · %d Knoten (%d belegt)' % (
+    print('%.1fs · %d machines %s · %d generators · %d grids · %d power lines · %d nodes (%d used)' % (
         time.time() - t, len(f['machines']), dict(st), len(f['generators']), len(f['circuits']),
         len(f['powerlines']), len(f['nodes']), sum(n['used'] for n in f['nodes'])))
-    print('Gleise %d, Rohre %d, Bänder %d' % (len(f['rails']), len(f['pipes']), len(f['belts'])))
+    print('rails %d, pipes %d, belts %d' % (len(f['rails']), len(f['pipes']), len(f['belts'])))
     for c in f['circuits'][:6]:
-        print('  Netz', c)
-    print('  Erbauer:', f['players_known'])
+        print('  grid', c)
+    print('  builders:', f['players_known'])

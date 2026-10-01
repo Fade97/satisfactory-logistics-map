@@ -1,10 +1,10 @@
-/* Canvas-Karte: Weltkoordinaten in Metern (+x Ost, +y Süd), Ansicht = Maßstab k (px/m) + Versatz.
+/* Canvas map: world coordinates in metres (+x east, +y south), view = scale k (px/m) + offset.
 
-   Zeichnen in zwei Schichten:
-   - statisch (Offscreen-Canvas): Kartenbild, Netzgeometrie, Leitungen, Maschinen — nur bei Zoom-/
-     Datenänderung neu; beim Verschieben wird das fertige Bild nur versetzt geblittet.
-   - dynamisch: Fahrzeuge, Spieler, Auswahl, Beschriftungen — jeden Frame, in dem sich etwas bewegt.
-   Treffer werden über ein Rastergitter gesucht, nicht per DOM. */
+   Drawing in two layers:
+   - static (offscreen canvas): map image, network geometry, lines, machines — redrawn only on zoom/
+     data change; when panning, the finished image is just blitted with an offset.
+   - dynamic: vehicles, players, selection, labels — every frame in which something moves.
+   Hit testing is done in code, not via the DOM. */
 
 export interface MapObj {
   kind: string; key: string; x: number; y: number; r: number; label?: string; color: string; ring?: string;
@@ -22,12 +22,12 @@ export class MapView {
   img: HTMLImageElement | null = null; box = { x: 0, y: 0, w: 1, h: 1 };
   objs: MapObj[] = []; lines: Lines[] = []; segs: Segs[] = []; overlays: Overlay[] = []; boxes: any[] = [];
   layers: Record<string, boolean> = {};
-  hidden = new Set<string>();       // Filter: Schlüssel ausgeblendeter Objekte
-  /** Warenfluss: hervorgehobene Objekte (Rest abgedunkelt) + Linienzüge der Ware, null = aus */
+  hidden = new Set<string>();       // filter: keys of hidden objects
+  /** Item flow: highlighted objects (rest dimmed) + polylines of the item, null = off */
   flowFocus: { keys: Set<string>; paths: number[][][]; color: string } | null = null;
   sel: MapObj | null = null; hover: MapObj | null = null;
-  /** Folge-Modus: Schlüssel des verfolgten Objekts + Bildschirmversatz (Detailkarte/Bottom Sheet verdecken einen Teil).
-      Die Kamera hängt im Render-Loop an der interpolierten Position — gleitet also genau wie der Punkt. */
+  /** Follow mode: key of the followed object + screen offset (detail card/bottom sheet cover part of the view).
+      The camera tracks the interpolated position in the render loop — so it glides exactly like the dot. */
   followKey: string | null = null; followOff = { x: 0, y: 0 };
   links: [MapObj, MapObj][] = [];
   labels = true; imgAlpha = 0.85;
@@ -53,7 +53,7 @@ export class MapView {
     this.stKey = ''; this.redraw();
   }
 
-  // ---------------------------------------------------------------- Koordinaten
+  // ---------------------------------------------------------------- Coordinates
   sx = (x: number) => x * this.k + this.dx;
   sy = (y: number) => y * this.k + this.dy;
   wx = (px: number) => (px - this.dx) / this.k;
@@ -85,7 +85,7 @@ export class MapView {
   }
   center() { return { x: this.wx(this.w / 2), y: this.wy(this.h / 2) }; }
 
-  // ---------------------------------------------------------------- Treffer
+  // ---------------------------------------------------------------- Hit testing
   hit(px: number, py: number, tol = 10): MapObj | null {
     let best: MapObj | null = null, bd = 1e9;
     for (const o of this.objs) {
@@ -96,9 +96,9 @@ export class MapView {
     }
     return best;
   }
-  /** Detailebene (Fundamente/Wände aus dem Save): Int16-Felder, siehe lightweight.detail_binary */
+  /** Detail layer (foundations/walls from the save): Int16 arrays, see lightweight.detail_binary */
   detail: { tiles: Int16Array; tmeta: Uint8Array; walls: Int16Array } | null = null;
-  /** Höhenfilter in Metern [von, bis] — gilt für Objekte mit z (Maschinen, Generatoren, Stationen), null = aus */
+  /** Height filter in metres [from, to] — applies to objects with z (machines, generators, stations), null = off */
   zRange: [number, number] | null = null;
   visible(o: MapObj) {
     if (this.zRange && o.z !== undefined && (o.z < this.zRange[0] || o.z > this.zRange[1])) return false;
@@ -106,7 +106,7 @@ export class MapView {
   }
   rad(o: MapObj) { return o.r * (o.kind === 'machine' || o.kind === 'node' || o.kind === 'collectible' ? Math.min(1.6, Math.max(.45, this.k / 1.2)) : 1); }
 
-  // ---------------------------------------------------------------- Zeichnen
+  // ---------------------------------------------------------------- Drawing
   private tick(now: number) {
     let moving = false;
     for (const o of this.objs) {
@@ -120,8 +120,8 @@ export class MapView {
     if (this.followKey) {
       const o = this.objs.find(x => x.key === this.followKey);
       if (o) {
-        // Nur verschieben (dx/dy), nicht neu rendern: drawStatic erneuert die Offscreen-Fläche erst,
-        // wenn der Versatz zu groß wird — so bleibt das Mitführen bei 60 fps günstig
+        // Only shift (dx/dy), don't re-render: drawStatic refreshes the offscreen surface only
+        // once the offset gets too large — keeps following cheap at 60 fps
         const dx = (this.w - this.followOff.x) / 2 - this.k * o.x, dy = (this.h - this.followOff.y) / 2 - this.k * o.y;
         if (Math.abs(dx - this.dx) > .05 || Math.abs(dy - this.dy) > .05) {
           this.dx = dx; this.dy = dy; moving = true; this.onchange();
@@ -133,10 +133,10 @@ export class MapView {
   }
 
   private drawStatic() {
-    // Statischer Teil als Bild für einen etwas größeren Ausschnitt; neu nur bei Zoom oder zu weitem Verschieben
+    // Static part as an image of a slightly larger area; redrawn only on zoom or panning too far
     const key = this.k.toFixed(4) + '|' + JSON.stringify(this.layers) + '|' + this.imgAlpha + '|' + this.hidden.size + '|' + (this.flowFocus ? this.flowFocus.keys.size + ':' + this.flowFocus.paths.length : '') + '|' + (this.zRange || '');
     const W = this.w * 2, H = this.h * 2;
-    // Offscreen-Fläche = Bildschirm plus je eine halbe Breite/Höhe Rand: Welt-x → x·k + ox
+    // Offscreen surface = screen plus half a width/height margin on each side: world x → x·k + ox
     const ox = this.dx + this.w / 2, oy = this.dy + this.h / 2;
     const cur = (this as any)._st as { key: string; ox: number; oy: number } | undefined;
     if (cur && cur.key === key && this.stKey && Math.abs(ox - cur.ox) < this.w / 2.2 && Math.abs(oy - cur.oy) < this.h / 2.2) return cur;
@@ -181,7 +181,7 @@ export class MapView {
       }
       c.stroke();
     }
-    if (this.flowFocus) {                              // Warenfluss: Bänder/Rohre der Ware kräftig darüber
+    if (this.flowFocus) {                              // item flow: belts/pipes of the item drawn boldly on top
       c.globalAlpha = .95; c.strokeStyle = this.flowFocus.color; c.lineWidth = Math.min(4, Math.max(1.6, k * 1.6));
       c.beginPath();
       for (const p of this.flowFocus.paths) {
@@ -191,13 +191,13 @@ export class MapView {
       c.stroke();
     }
     c.globalAlpha = 1;
-    for (const b of this.boxes) {                 // Fabrik-Cluster als Umriss
+    for (const b of this.boxes) {                 // factory clusters as outlines
       if (this.layers[b.layer] === false) continue;
       const x = X(b.box[0] - 12), y = Y(b.box[1] - 12), w = (b.box[2] - b.box[0] + 24) * k, h = (b.box[3] - b.box[1] + 24) * k;
       c.strokeStyle = b.color; c.globalAlpha = .55; c.lineWidth = 1; c.setLineDash([4, 3]); c.strokeRect(x, y, w, h); c.setLineDash([]);
       c.globalAlpha = .06; c.fillStyle = b.color; c.fillRect(x, y, w, h); c.globalAlpha = 1;
     }
-    // statische Objekte (Maschinen, Knoten, Generatoren) mit in die Offscreen-Fläche
+    // static objects (machines, nodes, generators) go into the offscreen surface too
     for (const o of this.objs) {
       if (o.t0 !== undefined || o.kind === 'player' || o.kind === 'train' || o.kind === 'truck' || o.kind === 'station' || o.kind === 'pin') continue;
       if (!this.visible(o)) continue;
@@ -210,11 +210,11 @@ export class MapView {
     return res;
   }
 
-  /** Fundamente als 8×8-m-Kacheln (Farbe nach Material, obere Etagen heller), Wände als Linien darüber. */
+  /** Foundations as 8×8 m tiles (colour by material, upper floors lighter), walls as lines on top. */
   private drawDetail(c: CanvasRenderingContext2D, X: (x: number) => number, Y: (y: number) => number, k: number,
                      x0: number, y0: number, x1: number, y1: number) {
     const d = this.detail!, T = d.tiles, M = d.tmeta, n = M.length, zr = this.zRange;
-    const MAT = ['#8f8a82', '#5f6368', '#b3aea6', '#7d8590', '#6cc4d8', '#6f6450'];   // sonstig, Asphalt, Beton, Metall, Glas, Teer
+    const MAT = ['#8f8a82', '#5f6368', '#b3aea6', '#7d8590', '#6cc4d8', '#6f6450'];   // other, asphalt, concrete, metal, glass, tar
     const half = 4 * k;
     const byCol = new Map<string, number[]>();
     for (let i = 0; i < n; i++) {
@@ -229,13 +229,13 @@ export class MapView {
     for (const [col, ids] of byCol) {
       c.fillStyle = col; c.beginPath();
       for (const i of ids) {
-        // 8×8-Kachel achsparallel: Drehungen um 90° ändern das Quadrat nicht, schräge Bauten sind selten
+        // 8×8 tile axis-aligned: 90° rotations don't change the square, diagonal builds are rare
         const cx = X(T[3 * i]), cy = Y(T[3 * i + 1]);
         c.rect(cx - half, cy - half, 2 * half, 2 * half);
       }
       c.fill();
     }
-    if (k >= 1.6) {                                        // Fugen erst bei starkem Zoom
+    if (k >= 1.6) {                                        // tile seams only when zoomed in far
       c.globalAlpha = .35; c.strokeStyle = '#16171a'; c.lineWidth = 1; c.beginPath();
       for (const ids of byCol.values()) for (const i of ids) {
         const cx = X(T[3 * i]), cy = Y(T[3 * i + 1]); c.rect(cx - half, cy - half, 2 * half, 2 * half);
@@ -275,7 +275,7 @@ export class MapView {
     c.drawImage(this.st, Math.round((this.dx - s.ox) * d), Math.round((this.dy - s.oy) * d));
     c.setTransform(d, 0, 0, d, 0, 0);
     for (const ov of this.overlays) if (this.layers[ov.layer] !== false) ov.draw(c, this);
-    // Verbindungslinien zur Auswahl
+    // connection lines to the selection
     if (this.links.length) {
       c.setLineDash([7, 5]); c.lineWidth = 2; c.strokeStyle = '#f5f2ea'; c.globalAlpha = .85;
       c.beginPath();
@@ -288,12 +288,12 @@ export class MapView {
       const x = this.sx(o.x), y = this.sy(o.y);
       if (x < -30 || y < -30 || x > this.w + 30 || y > this.h + 30) continue;
       this.shape(c, o, x, y, o.r);
-      if (o.fill != null && this.k > .35) {        // Füllstand als kleiner Balken unter Stationen
+      if (o.fill != null && this.k > .35) {        // fill level as a small bar below stations
         c.fillStyle = '#0c0d0e'; c.fillRect(x - 8, y + o.r + 3, 16, 3);
         c.fillStyle = o.fill > .9 ? '#e5484d' : o.fill < .1 ? '#9a968e' : '#e8e6e1'; c.fillRect(x - 8, y + o.r + 3, 16 * o.fill, 3);
       }
     }
-    if (this.flowFocus) for (const o of this.objs) {    // Fokus-Objekte mit Ring markieren
+    if (this.flowFocus) for (const o of this.objs) {    // mark focused objects with a ring
       if (!this.flowFocus.keys.has(o.key) || !this.visible(o) || o.kind === 'factory') continue;
       const x = this.sx(o.x), y = this.sy(o.y);
       if (x < -20 || y < -20 || x > this.w + 20 || y > this.h + 20) continue;

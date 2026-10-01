@@ -1,20 +1,20 @@
-"""Liest Truck-/Zug-Bahnhoefe aus einem Satisfactory-.sav und liefert strukturierte Records."""
+"""Reads truck/train stations from a Satisfactory .sav and returns structured records."""
 import re, struct
 import sbp, sav
 
-# ---------- kleine Helfer ----------
+# ---------- small helpers ----------
 def text_prop(b):
-    """FText aus den Rohbytes einer TextProperty (nur die im Save genutzten History-Typen)."""
+    """FText from the raw bytes of a TextProperty (only the history types used in the save)."""
     if not b: return ''
     r = sbp.R(b); r.i32()                      # flags
     ht = r.u8()
-    if ht == 0xff:                             # None-History: optional invariant string
+    if ht == 0xff:                             # None history: optional invariant string
         if r.i32():
             return r.s()
         return ''
     if ht == 0:                                # Base: namespace, key, source string
         r.s(); r.s(); return r.s()
-    if ht == 11:                               # StringTableEntry = unveraenderter Default-Name
+    if ht == 11:                               # StringTableEntry = unchanged default name
         return ''
     return ''
 
@@ -83,7 +83,7 @@ def props(ob):
     return {p['name']: p['value'] for p in ob['props']}
 
 def inventory(idx, comp_path):
-    """Liste (item, anzahl) aus einer FGInventoryComponent (Fluide in m3)."""
+    """List of (item, amount) from an FGInventoryComponent (fluids in m3)."""
     if not comp_path or comp_path not in idx: return []
     _, ob = sav.obj(idx, comp_path)
     if 'err' in ob: return []
@@ -94,20 +94,20 @@ def inventory(idx, comp_path):
         n = d.get('NumItems', 0)
         if it and n:
             name = item_name(it)
-            if name in FLUIDS: n = round(n / 1000.0, 1)   # Fluid-Stacks zaehlen in Litern
+            if name in FLUIDS: n = round(n / 1000.0, 1)   # fluid stacks count in litres
             out[name] = out.get(name, 0) + n
     return sorted(out.items(), key=lambda kv: -kv[1])
 
-VEHICLES = {'BP_Locomotive_C': 'Lok', 'BP_FreightWagon_C': 'Frachtwaggon', 'BP_Truck_C': 'Truck',
-            'BP_Tractor_C': 'Traktor', 'BP_Explorer_C': 'Explorer', 'BP_Golfcart_C': 'Cyber-Wagen',
-            'BP_GolfcartGold_C': 'Goldener Cyber-Wagen', 'FGPlayerHotbar': ''}
+VEHICLES = {'BP_Locomotive_C': 'Locomotive', 'BP_FreightWagon_C': 'Freight Car', 'BP_Truck_C': 'Truck',
+            'BP_Tractor_C': 'Tractor', 'BP_Explorer_C': 'Explorer', 'BP_Golfcart_C': 'FICSIT Factory Cart',
+            'BP_GolfcartGold_C': 'Golden Factory Cart', 'FGPlayerHotbar': ''}
 
 
 def players(idx):
-    """Spielerfiguren aus dem Save: Name, Weltposition, gefahrenes Fahrzeug.
+    """Player characters from the save: name, world position, driven vehicle.
 
-    Der Zustand 'gerade online' steht nicht im Save -- die Figur bleibt auch nach dem
-    Abmelden stehen. Die Position ist also der Stand des jeweiligen Speicherzeitpunkts.
+    'Currently online' is not stored in the save -- the character stays in the world after
+    logging out. The position is therefore the state at the time of saving.
     """
     out = []
     for n, (h, o) in idx.items():
@@ -127,7 +127,7 @@ def comp(idx, actor_name, suffix):
     p = actor_name + '.' + suffix
     return p if p in idx else None
 
-# ---------- Extraktion ----------
+# ---------- extraction ----------
 def extract(path, idx=None):
     idx = idx or sav.load_index(path)
     cls = {n: sbp.short(h['cls']) for n, (h, o) in idx.items()}
@@ -144,10 +144,10 @@ def extract(path, idx=None):
         if st not in idx: continue
         sd = props(sav.obj(idx, st)[1])
         inv = inventory(idx, comp(idx, st, 'inventory'))
-        # mIsInLoadMode fehlt = Default true = Fahrzeuge werden beladen
+        # mIsInLoadMode missing = default true = vehicles are loaded
         load = bool(sd.get('mIsInLoadMode', True))
-        # mVehicleTracking = jedes Fahrzeug, das hier andockt, mit Rundenzeit. Stationen, die dasselbe
-        # Fahrzeug führen, liegen auf derselben Route — das sind die echten Gegenstellen.
+        # mVehicleTracking = every vehicle docking here, with its round-trip time. Stations listing the
+        # same vehicle are on the same route — those are the real counterpart stations.
         vehicles = []
         for v in sd.get('mVehicleTracking', []):
             vd = {p['name']: p['value'] for p in v}
@@ -164,7 +164,7 @@ def extract(path, idx=None):
                            items=[dict(item=i, amount=a) for i, a in inv],
                            vehicles=sorted(vehicles, key=lambda v: v['id'])))
 
-    # Zug: Station -> Plattformkette ueber FGTrainPlatformConnection.mConnectedTo
+    # train: station -> platform chain via FGTrainPlatformConnection.mConnectedTo
     def platform_chain(station):
         seen, chain = set(), []
         cur = comp(idx, station, 'PlatformConnection0')
@@ -204,7 +204,7 @@ def extract(path, idx=None):
                            platforms=plats,
                            items=merge_items(plats)))
 
-    # Zuege + Fahrplaene
+    # trains + timetables
     ident_to_station = {t['ident']: t['name'] for t in trains}
     routes = []
     for n, c in cls.items():
@@ -227,9 +227,9 @@ def extract(path, idx=None):
 
 
 def save_vehicles(idx, cls=None):
-    """Fahrzeugpositionen aus dem Save — Rückfall, wenn FRM keine Live-Daten liefert.
+    """Vehicle positions from the save — fallback when FRM provides no live data.
 
-    Form wie frm.trains()/frm.trucks(), damit die Website beide Quellen gleich behandelt.
+    Same shape as frm.trains()/frm.trucks(), so the website treats both sources alike.
     """
     cls = cls or {n: sbp.short(h['cls']) for n, (h, o) in idx.items()}
     trucks, trains = [], []

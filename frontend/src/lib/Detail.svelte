@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Detailkarte für jedes Kartenobjekt.
+  // Detail card for every map object.
   import type { MapObj } from './mapview';
   import { live, stations, factory, flow } from './api';
   import { C, MODE_LABEL, STATE_COLOR, machineColor, fmtNum, fmtMW, dur } from './fmt';
@@ -12,7 +12,7 @@
   } = $props();
   const d = $derived(o.data);
   let show3d = $state(false);
-  /** Bänder/Rohre nahe der Fabrik: jeder Punkt höchstens 15 m von einer ihrer Maschinen, außerhalb abgeschnitten */
+  /** Belts/pipes near the factory: each point at most 15 m from one of its machines, clipped outside */
   function near(ms: any[]) {
     const R = 15, cell = 30, grid = new Map<string, any[]>();
     for (const m of ms) { const k = Math.floor(m.pos[0] / cell) + ',' + Math.floor(m.pos[1] / cell); if (!grid.has(k)) grid.set(k, []); grid.get(k)!.push(m); }
@@ -33,13 +33,13 @@
   const PT: Record<string, string> = { freight: tr('Freight'), fluid: tr('Fluid'), empty: tr('empty') };
   const KIND: Record<string, string> = { collectible: tr('Collectible'), station: '', player: tr('Player'), train: tr('Train'), truck: tr('Vehicle'), machine: tr('Machine'),
     generator: tr('Generator'), node: tr('Resource nodes'), pin: tr('Note'), factory: tr('Factory') };
-  // Reinheit kommt englisch vom Backend; die deutschen Begriffe sind gemeinsame Schlüssel (i18n/en/parts.ts)
+  // Purity arrives in English from the backend; the values are shared i18n keys (i18n/de/parts.ts)
   const PUR: Record<string, string> = { pure: 'pure', normal: 'normal', impure: 'impure' };
 
   const liveSt = $derived(o.kind === 'station' ? $live?.stations?.[d.id.split('.').pop()] : null);
   const vehName = (id: string) => $live?.trucks.find(t => t.id === id)?.name;
 
-  // Gegenstellen per gemeinsamem Fahrzeug
+  // counterpart stations via a shared vehicle
   const links = $derived.by(() => {
     if (o.kind !== 'station' || d.kind !== 'truck' || !$stations) return [];
     const mine = new Set((d.vehicles || []).map((v: any) => v.id));

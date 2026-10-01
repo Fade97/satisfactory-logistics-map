@@ -1,4 +1,4 @@
-"""Takte: Save (60 s), FRM-Fabrik (60 s), Live (5 s), Sink (60 s)."""
+"""Loops: save (60 s), FRM factory (60 s), live (5 s), sink (60 s)."""
 import datetime, os, time, traceback
 
 import frm
@@ -10,12 +10,12 @@ from .events import live_events, changelog, growth, storage_events
 from .logistics import fill_levels
 
 
-# Weltausschnitt der Spielkarte (frontend/public/map.jpg) in cm — Standardgrenzen des Satisfactory-Maprenders,
-# gegen die Rohstoffknoten geprüft: alle 490 liegen auf Land
+# World extent of the game map (frontend/public/map.jpg) in cm — standard bounds of the Satisfactory map render,
+# verified against the resource nodes: all 490 lie on land
 MAP = dict(west=-324698.832031, east=425301.832031, north=-375000.0, south=375000.0, image='map.jpg')
 
 
-# ================================================================ Save-Takt
+# ================================================================ save cycle
 def save_cycle(no_fetch=False):
     import stations, factory
     if no_fetch:
@@ -48,7 +48,7 @@ def save_cycle(no_fetch=False):
     ST.put('nodes', fac['nodes'])
     ST.put('flow', fac.get('flow') or {})
     ST.put('collectibles', fac.get('collectibles') or {})
-    try:                                               # Detailebene: Fundamente + Wände (Leichtbau-Objekte)
+    try:                                               # detail layer: foundations + walls (lightweight buildables)
         import lightweight
         ST.put('detail', lightweight.detail_binary(S))
     except Exception as e:
@@ -59,7 +59,7 @@ def save_cycle(no_fetch=False):
     storage_events(fac.get('storage') or [])
     ST.put('powerlines', fac['powerlines'])
     ST.put('progress', fac['progress'])
-    if not ST.frm_ok or ST.geo is None:          # Netzgeometrie aus dem Save, solange FRM fehlt
+    if not ST.frm_ok or ST.geo is None:          # network geometry from the save while FRM is missing
         ST.geo = dict(at=saved_at, source='save', rails=fac['rails'], pipes=fac['pipes'], belts=fac['belts'])
         ST.put('geo', ST.geo)
     if not ST.frm_ok or ST.factory is None:
@@ -72,7 +72,7 @@ def save_cycle(no_fetch=False):
 
 
 
-# ================================================================ Takte
+# ================================================================ loops
 def live_loop():
     while True:
         t = time.time()
@@ -87,7 +87,7 @@ def live_loop():
             live_events(live)
         except Exception as e:
             frm_status(False, e)
-            if ST.stations:                         # Rückfall: Save-Stand der Fahrzeuge und Spieler
+            if ST.stations:                         # fallback: vehicles and players as of the save
                 v = ST.stations.get('vehicles', {})
                 ST.put('live', dict(at=ST.save_meta['saved_at'], source='save', paused=None, session=None,
                                     players=[dict(p, online=None, dead=False, hp=None, speed=None) for p in ST.stations['players']],
@@ -100,7 +100,7 @@ _last_frame = [0]
 
 
 def record_frame(t, live):
-    """Zeitreise: einmal je Minute alle beweglichen Dinge + Fabrikzustand festhalten (nicht während Pausen)."""
+    """Time travel: once per minute record everything that moves + factory state (not while paused)."""
     if t - _last_frame[0] < 60 or paused():
         return
     _last_frame[0] = t
@@ -110,8 +110,8 @@ def record_frame(t, live):
         p=[[x['name'], *P(x), 1 if x.get('online') else 0] for x in live.get('players', [])],
         tr=[[x['name'], *P(x), round(x.get('speed') or 0), 1 if x.get('docked') else 0] for x in live.get('trains', [])],
         tk=[[x.get('id') or x['name'], *P(x), round(x.get('speed') or 0)] for x in live.get('trucks', [])],
-        # je Fabrik: Anteil laufend / Materialmangel (0–100)
-        f=[[f['key'], round(100 * ((f['states'].get('läuft', 0) + f['states'].get('teilweise', 0)) / max(1, f['n']))),
+        # per factory: share running / starved of input (0–100)
+        f=[[f['key'], round(100 * ((f['states'].get('running', 0) + f['states'].get('partial', 0)) / max(1, f['n']))),
             round(100 * f.get('starved', 0) / max(1, f['n']))] for f in fac.get('factories', [])],
         pw=[[c['id'], round(c['use']), round(c['cap'])] for c in fac.get('circuits', []) if c.get('cap')],
     ))
@@ -133,7 +133,7 @@ def factory_loop():
             except Exception as e:
                 log('FRM factory failed:', repr(e)[:160])
         elif ST.factory is not None and ST.factory_source == 'save':
-            pass                                    # Save-Stand bleibt, kommt mit dem nächsten Autosave neu
+            pass                                    # keep the save state; refreshed with the next autosave
         try:
             DB.compact(t)
         except Exception as e:
@@ -156,11 +156,11 @@ def save_loop(no_fetch):
 
 
 def frm_factory():
-    """Maschinen/Strom aus FRM in derselben Form wie factory.build — Save liefert, was FRM nicht hat."""
+    """Machines/power from FRM in the same shape as factory.build — the save fills in what FRM lacks."""
     save_fac = getattr(ST, 'save_factory', None) or {}
-    base = {m['id']: m for m in save_fac.get('machines', [])}      # Erbauer, Grund, seit wann: nur im Save
+    base = {m['id']: m for m in save_fac.get('machines', [])}      # builder, reason, since when: only in the save
     mach = []
-    # getFactory kennt nur Fertigungsmaschinen; Miner, Pumpen und Fracking-Extraktoren stehen in getExtractor
+    # getFactory only covers production machines; miners, pumps and fracking extractors are in getExtractor
     try:
         extractors = frm.get('getExtractor')
     except frm.FrmError:
@@ -171,7 +171,7 @@ def frm_factory():
         prod, ing = m.get('production') or [], m.get('ingredients') or []
         pi = m.get('PowerInfo') or {}
         pct = m.get('Productivity')
-        if pct is None and prod:                      # Extraktor: Auslastung steht je Produkt
+        if pct is None and prod:                      # extractor: utilisation is reported per product
             pct = prod[0].get('ProdPercent')
         pct = float(pct or 0)
         state = ('off' if not m.get('IsConfigured') else 'paused' if m.get('IsPaused')
@@ -179,7 +179,7 @@ def frm_factory():
                  else 'partial' if m.get('IsProducing') else 'stopped')
         b = base.get(mid, {})
         recipe = m.get('Recipe') or None
-        if is_ex:                                     # Namen wie im Save-Pfad, damit Filter/Knoten passen
+        if is_ex:                                     # names as in the save path so filters/nodes match
             recipe = EXTRACT + (prod[0].get('Name') if prod else (recipe or '?'))
         mach.append(dict(id=mid, cls=m.get('ClassName'), name=m.get('Name'), pos=[round(m['location']['x'] / 100), round(m['location']['y'] / 100)],
                          z=round(m['location']['z'] / 100), recipe=recipe, clock=round(float(m.get('ManuSpeed') or 100) / 100, 3),
@@ -200,7 +200,7 @@ def frm_factory():
                          battery_empty=c.get('BatteryTimeEmpty'), battery_full=c.get('BatteryTimeFull'),
                          fuse=bool(c.get('FuseTriggered')),
                          n_mach=sum(1 for m in mach if m['circuit'] == c.get('CircuitGroupID'))))
-    # Generatoren: FRM kennt Leistung und Netz, Brennstofflager und Erbauer kommen aus dem Save
+    # generators: FRM knows output and grid; fuel stock and builder come from the save
     sg = {g['id']: g for g in save_fac.get('generators', [])}
     gens = []
     try:
@@ -220,11 +220,11 @@ def frm_factory():
                          circuit=g.get('CircuitID', (g.get('PowerInfo') or {}).get('CircuitGroupID', old.get('circuit'))),
                          cap=round(float(g.get('PowerProductionPotential') or g.get('BaseProd') or old.get('cap') or 0), 1),
                          prod=round(prod, 1), producing=prod > 0 or bool(g.get('IsFullBlast'))))
-    gens += [g for k, g in sg.items() if k not in seen and not rows]     # FRM ohne Generatoren → Save-Stand
+    gens += [g for k, g in sg.items() if k not in seen and not rows]     # FRM without generators → save state
     return dict(machines=mach, generators=gens, circuits=circ, batteries=[])
 
 def sink_loop():
-    """AWESOME Sink live (FRM): Punkte je Minute als Zeitreihe, Stand für die Website."""
+    """AWESOME Sink live (FRM): points per minute as a time series, current state for the website."""
     while True:
         if ST.frm_ok:
             try:

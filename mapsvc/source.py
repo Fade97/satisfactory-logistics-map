@@ -1,13 +1,13 @@
-"""Woher das Save kommt — einstellbar über SAVE_SOURCE:
+"""Where the save comes from — configured via SAVE_SOURCE:
 
-  (leer)                          Ordner saves/ (MAP_SAVES): *.sav dort ablegen oder als Volume einhängen
-  /pfad/zum/ordner                lokaler Ordner, auch Unterordner (Windows-Saves liegen unter SaveGames/<ID>/)
-  sftp://user@host:port/pfad      SFTP; Passwort SAVE_PASSWORD oder Schlüsseldatei SAVE_KEY
-  ftp://user@host:port/pfad       FTP, ftps:// mit TLS (viele Server-Hoster); Passwort SAVE_PASSWORD
-  api://host:7777                 HTTPS-API des Dedicated Servers; Admin-Passwort SAVE_PASSWORD oder Token SAVE_TOKEN
+  (empty)                         folder saves/ (MAP_SAVES): drop *.sav there or mount it as a volume
+  /path/to/folder                 local folder, including subfolders (Windows saves live under SaveGames/<ID>/)
+  sftp://user@host:port/path      SFTP; password SAVE_PASSWORD or key file SAVE_KEY
+  ftp://user@host:port/path       FTP, ftps:// with TLS (many server hosts); password SAVE_PASSWORD
+  api://host:7777                 HTTPS API of the dedicated server; admin password SAVE_PASSWORD or token SAVE_TOKEN
 
-Genommen wird das jüngste Save (SAVE_PATTERN, Standard *.sav). Geladen wird nur, wenn es sich geändert hat;
-das Ergebnis liegt immer in saves/latest.sav, der Stand in saves/latest.stamp.
+The newest save is used (SAVE_PATTERN, default *.sav). It is only downloaded when it has changed;
+the result is always saves/latest.sav, its version marker saves/latest.stamp.
 """
 import datetime, fnmatch, ftplib, json, os, shutil, ssl, stat, time, urllib.parse, urllib.request
 
@@ -18,7 +18,7 @@ PASSWORD = os.environ.get('SAVE_PASSWORD', '')
 TOKEN = os.environ.get('SAVE_TOKEN', '')
 KEY = os.path.expanduser(os.environ.get('SAVE_KEY', ''))
 PATTERN = os.environ.get('SAVE_PATTERN', '*.sav')
-FRESH = 10                                  # jünger als 10 s: wird evtl. noch geschrieben → nächster Takt
+FRESH = 10                                  # younger than 10 s: may still be being written → next cycle
 
 
 class SourceError(Exception):
@@ -26,19 +26,19 @@ class SourceError(Exception):
 
 
 def describe(src=None):
-    """Quelle ohne Passwort, für Log und Statusanzeige."""
+    """Source without password, for the log and status display."""
     src = SOURCE if src is None else src
     if not src:
         return 'folder ' + SAVES
     u = urllib.parse.urlsplit(src)
-    if not u.scheme or len(u.scheme) == 1:          # Pfad (auch C:\…)
+    if not u.scheme or len(u.scheme) == 1:          # path (also C:\…)
         return 'folder ' + src
     host = u.hostname or ''
     return '%s://%s%s%s' % (u.scheme, (u.username + '@') if u.username else '', host, (':%d' % u.port) if u.port else '') + (u.path or '')
 
 
 def fetch_latest(src=None):
-    """→ (lokaler Pfad, Anzeigename, mtime, geändert?)"""
+    """→ (local path, display name, mtime, changed?)"""
     src = SOURCE if src is None else src
     u = urllib.parse.urlsplit(src)
     if not src or not u.scheme or len(u.scheme) == 1:
@@ -49,14 +49,14 @@ def fetch_latest(src=None):
     return fn(u)
 
 
-# ---------------------------------------------------------------- gemeinsam
+# ---------------------------------------------------------------- shared
 def _paths():
     os.makedirs(SAVES, exist_ok=True)
     return os.path.join(SAVES, 'latest.sav'), os.path.join(SAVES, 'latest.stamp')
 
 
 def _take(name, mtime, download, version=None):
-    """Neues Save laden, wenn Name/Zeit anders sind als beim letzten Mal. download(ziel) schreibt die Datei."""
+    """Download a new save if name/time differ from last time. download(dst) writes the file."""
     local, stamp = _paths()
     prev = open(stamp).read().strip() if os.path.exists(stamp) else ''
     tag = '%s|%s' % (name, version or int(mtime))
@@ -76,14 +76,14 @@ def _take(name, mtime, download, version=None):
 
 
 def _newest(entries):
-    """entries: [(name, mtime, pfad)] → jüngstes passendes Save."""
+    """entries: [(name, mtime, path)] → newest matching save."""
     hits = [e for e in entries if fnmatch.fnmatch(e[0], PATTERN) and e[0] != 'latest.sav']
     if not hits:
         raise SourceError('no save (%s) in %s' % (PATTERN, describe()))
     return max(hits, key=lambda e: e[1])
 
 
-# ---------------------------------------------------------------- Ordner
+# ---------------------------------------------------------------- folder
 def _dir(path):
     path = os.path.expanduser(path)
     if not os.path.isdir(path):
@@ -92,7 +92,7 @@ def _dir(path):
     for root, _dirs, files in os.walk(path):
         entries += [(f, os.path.getmtime(os.path.join(root, f)), os.path.join(root, f)) for f in files]
     if not any(e[0] != 'latest.sav' and fnmatch.fnmatch(e[0], PATTERN) for e in entries):
-        local, stamp = _paths()                      # nur ein früher geholtes latest.sav da → das nehmen
+        local, stamp = _paths()                      # only a previously fetched latest.sav present → use it
         if os.path.exists(local):
             name = open(stamp).read().split('|')[0] if os.path.exists(stamp) else 'latest.sav'
             return local, os.path.basename(name), os.path.getmtime(local), False
@@ -137,7 +137,7 @@ def _ftp(u):
             for name, facts in f.mlsd(d, facts=['type', 'modify']):
                 if facts.get('type') == 'file':
                     entries.append((name, _ftptime(facts['modify']), d.rstrip('/') + '/' + name))
-        except ftplib.error_perm:                    # Server ohne MLSD: Liste + MDTM je Datei
+        except ftplib.error_perm:                    # server without MLSD: list + MDTM per file
             for full in f.nlst(d):
                 name = full.rsplit('/', 1)[-1]
                 if fnmatch.fnmatch(name, PATTERN):
@@ -162,9 +162,9 @@ def _ftptime(v):
     return datetime.datetime.strptime(v[:14], '%Y%m%d%H%M%S').replace(tzinfo=datetime.timezone.utc).timestamp()
 
 
-# ---------------------------------------------------------------- Server-API (Dedicated Server, HTTPS)
+# ---------------------------------------------------------------- server API (dedicated server, HTTPS)
 _token = [TOKEN]
-_CTX = ssl._create_unverified_context()          # der Server nutzt ein selbstsigniertes Zertifikat
+_CTX = ssl._create_unverified_context()          # the server uses a self-signed certificate
 
 
 def _call(base, fn, data=None, raw_to=None):
@@ -202,7 +202,7 @@ def _api(u, retry=True):
     except SourceError as e:
         if TOKEN or not retry or ('401' not in str(e) and '403' not in str(e)):
             raise
-        _token[0] = ''                              # Token abgelaufen → einmal neu anmelden
+        _token[0] = ''                              # token expired → log in again once
         return _api(u, retry=False)
     sessions = d.get('sessions') or []
     if not sessions:
@@ -222,8 +222,8 @@ def _api(u, retry=True):
 
 
 def _apitime(v):
-    """saveDateTime der API ('2024.09.21-17.02.33' oder FDateTime-Ticks, UTC); unbekanntes Format → jetzt."""
-    if v.isdigit() and len(v) >= 17:               # 100-ns-Ticks seit 0001-01-01
+    """API saveDateTime ('2024.09.21-17.02.33' or FDateTime ticks, UTC); unknown format → now."""
+    if v.isdigit() and len(v) >= 17:               # 100 ns ticks since 0001-01-01
         return (int(v) - 621355968000000000) / 1e7
     for fmt in ('%Y.%m.%d-%H.%M.%S', '%Y-%m-%dT%H:%M:%S', '%Y%m%d%H%M%S'):
         try:

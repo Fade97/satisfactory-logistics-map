@@ -1,8 +1,8 @@
-"""Backend-Tests gegen ein festes Save (tests/fixtures/sample.sav, Kopie vom 30.09.2026, nicht im Repo).
+"""Backend tests against a fixed save (tests/fixtures/sample.sav, copy from 2026-09-30, not in the repo).
 
     .venv/bin/python -m pytest tests -q
-Fehlt die Fixture: `cp saves/latest.sav tests/fixtures/sample.sav` — die Zahlen unten gelten dann nicht mehr
-exakt; die Strukturtests schon.
+If the fixture is missing: `cp saves/latest.sav tests/fixtures/sample.sav` — the exact numbers below then no
+longer hold; the structural tests still do.
 """
 import os, sys
 import pytest
@@ -10,7 +10,7 @@ import pytest
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 SAMPLE = os.path.join(HERE, 'fixtures', 'sample.sav')
-pytestmark = pytest.mark.skipif(not os.path.exists(SAMPLE), reason='Fixture fehlt')
+pytestmark = pytest.mark.skipif(not os.path.exists(SAMPLE), reason='fixture missing')
 
 import factory, stations, planner   # noqa: E402
 
@@ -25,7 +25,7 @@ def fac(S):
     return factory.build_from(S, SAMPLE)
 
 
-# ---------------------------------------------------------------- Save lesen
+# ---------------------------------------------------------------- reading the save
 def test_counts(fac):
     assert len(fac['machines']) == 1131
     assert len(fac['generators']) == 85
@@ -36,7 +36,7 @@ def test_counts(fac):
 def test_stations(S):
     d = stations.extract(SAMPLE, S.idx)
     assert (len(d['trucks']), len(d['trains']), len(d['routes'])) == (104, 17, 6)
-    # Richtung: fehlt mIsInLoadMode, gilt „Beladen“
+    # direction: if mIsInLoadMode is missing, "load" applies
     assert {s['mode'] for s in d['trucks']} <= {'load', 'unload'}
     assert all(p['mode'] in (None, 'load', 'unload') for s in d['trains'] for p in s['platforms'])
 
@@ -52,13 +52,13 @@ def test_machine_fields(fac):
 def test_extractors_have_output(fac):
     ex = [m for m in fac['machines'] if (m.get('recipe') or '').startswith(factory.EXTRACT)]
     assert len(ex) >= 100
-    # Erze aus Knoten: Reinheit bekannt, Menge > 0 (Wasserpumpen haben keinen Knoten)
+    # ores from nodes: purity known, amount > 0 (water pumps have no node)
     ores = [m for m in ex if m['cls'] == 'Build_MinerMk2_C']
     assert ores and all(m['out'] and m['out'][0]['max'] > 0 and m.get('purity') for m in ores)
 
 
 def test_fluid_units(fac):
-    """Fluidrezepte sind im Datensatz in m³ — Fuel-Raffinerie: 60 Crude Oil → 40 Fuel je Minute."""
+    """Fluid recipes are in m³ in the dataset — fuel refinery: 60 Crude Oil → 40 Fuel per minute."""
     fuel = [m for m in fac['machines'] if m.get('recipe') == 'Fuel']
     assert fuel
     m = fuel[0]
@@ -73,7 +73,7 @@ def test_power_circuits(fac):
 
 
 def test_belt_flow(fac):
-    """Bandinhalt aus den ConveyorChain-Trails: die großen Ströme müssen da sein."""
+    """Belt contents from the ConveyorChain trails: the large flows must be present."""
     for it in ('Iron Ore', 'Copper Ore', 'Fuel', 'Water'):
         assert len(fac['flow'].get(it, [])) > 50, it
 
@@ -90,7 +90,7 @@ def test_header(fac):
     assert fac['playtime'] > 1_000_000
 
 
-# ---------------------------------------------------------------- Rechner
+# ---------------------------------------------------------------- planner
 @pytest.fixture(scope='module')
 def rec(S):
     return planner.unlocked(S)
@@ -104,13 +104,13 @@ def test_unlocked_contains_basics(rec):
 def test_plan_iron_plate(rec):
     r = planner.solve({planner.item_key('Iron Plate'): 60}, rec)
     assert r['ok']
-    # Standardweg: 90 Iron Ore → 90 Ingot → 60 Plate (Alternativen dürfen weniger brauchen)
+    # standard route: 90 Iron Ore → 90 Ingot → 60 Plate (alternates may need less)
     ore = next(x['rate'] for x in r['raw'] if x['item'] == 'Iron Ore')
     assert 0 < ore <= 90 + 1e-6
 
 
 def test_plan_balance_closes(rec):
-    """Jede Zwischenware wird mindestens so viel erzeugt wie verbraucht."""
+    """Every intermediate item is produced at least as much as it is consumed."""
     r = planner.solve({planner.item_key('Heavy Modular Frame'): 5}, rec)
     assert r['ok']
     bal = {}
@@ -150,7 +150,7 @@ def test_plan_unknown_item():
         planner.item_key('Unobtainium')
 
 
-# ---------------------------------------------------------------- Dienst-Logik
+# ---------------------------------------------------------------- service logic
 def test_clusters_by_belts(fac):
     import mapd
     for m in fac['machines']:
@@ -158,17 +158,17 @@ def test_clusters_by_belts(fac):
     cl = mapd.clusters(fac['machines'], fac['links'])
     assert 20 <= len(cl) <= 80
     names = [c['name'] for c in cl]
-    assert len(names) == len(set(names)), 'Automatik-Namen müssen eindeutig sein'
+    assert len(names) == len(set(names)), 'automatic names must be unique'
     assert sum(c['n'] for c in cl) <= len(fac['machines'])
 
 
 def test_balance_counts_generators(fac):
     import mapd
     b = {x['item']: x for x in mapd.balance(fac['machines'], fac['generators'])}
-    assert b['Fuel']['cons'] > 1000, 'Kraftwerke müssen Fuel verbrauchen'
+    assert b['Fuel']['cons'] > 1000, 'power plants must consume Fuel'
 
 
-# ---------------------------------------------------------------- Runde 5: Sammelobjekte, Lager, Blueprints
+# ---------------------------------------------------------------- round 5: collectibles, storage, blueprints
 def test_collectibles(S):
     c = factory.collectibles(S)
     assert c['total']['somersloop'] == 106
@@ -181,7 +181,7 @@ def test_storage(S):
     assert len(st) > 300
     assert all(x['fill'] is None or 0 <= x['fill'] <= 1 for x in st)
     tanks = [x for x in st if 'Tank' in x['cls'] and x['items']]
-    assert tanks and all(t['items'][0]['item'] != '?' for t in tanks), 'Tankinhalt über das Rohrnetz bestimmen'
+    assert tanks and all(t['items'][0]['item'] != '?' for t in tanks), 'determine tank contents via the pipe network'
 
 
 def test_blueprint_roundtrip(tmp_path, monkeypatch):
@@ -194,7 +194,7 @@ def test_blueprint_roundtrip(tmp_path, monkeypatch):
     for o in mach:
         rec = [p['value'][1] for p in o['obj']['props'] if p['name'] == 'mCurrentRecipe']
         assert rec and rec[0].endswith('Recipe_IronPlate_C')
-    # byte-genauer Rundlauf und keine offenen Verweise auf entfernte Maschinen
+    # byte-exact round trip and no dangling references to removed machines
     names = {h['name'] for h in B['headers']}
     for o in B['objs']:
         for p in o['obj']['props']:

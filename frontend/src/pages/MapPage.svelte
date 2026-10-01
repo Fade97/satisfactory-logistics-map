@@ -30,17 +30,17 @@
   let tip = $state<{ x: number; y: number; o: MapObj } | null>(null);
   let draw = $state<null | { shape: 'point' | 'line' | 'area'; pts: number[][] }>(null);
   let editPin = $state<any>(null);
-  let flowItem = $state<string>('');            // Warenfluss: gewählte Ware, '' = aus
+  let flowItem = $state<string>('');            // item flow: selected item, '' = off
   let showFlow = $state(false);
-  // Höhenfilter: Stockwerke aus den Maschinenhöhen (Häufungen), Bereich [von, bis] in Metern
+  // Height filter: floors derived from machine heights (clusters), range [from, to] in metres
   let showZ = $state(false);
-  // Zeitreise: gewähltes Minutenbild ersetzt die Live-Objekte, bis die Leiste geschlossen wird
+  // Time travel: the selected minute frame replaces the live objects until the bar is closed
   let showTT = $state(false);
   let ttFrame: any = null;
   let zRange = $state<[number, number] | null>(null);
-  // Messen: Punkte in Weltkoordinaten
+  // Measuring: points in world coordinates
   let measure = $state<number[][] | null>(null);
-  // Auswahlmodus: #/map?pick=site — ein Tippen setzt den Bauplatz des Rechners und springt zurück
+  // Pick mode: #/map?pick=site — one tap sets the planner's build site and jumps back
   let pickMode = $state<string | null>($route.q.get('pick'));
   let scaleTxt = $state(''), scaleW = $state(80);
   let isMobile = $state(matchMedia('(max-width: 760px)').matches);
@@ -51,15 +51,15 @@
     if (!V) return;
     const byKey = new Map(V.objs.map(o => [o.key, o]));
     V.objs = [...objs.co, ...objs.fac, ...objs.nd, ...objs.st, ...objs.pn, ...objs.lv];
-    // laufende Auswahl auf das neue Objekt umhängen
+    // move the current selection over to the new object
     if (sel) { const n = V.objs.find(o => o.key === sel!.key); if (n) { sel = n; V.sel = n; } }
     V.boxes = ($factory?.factories || []).map(f => ({ box: f.box, color: factoryColor(f), layer: 'factories' }));
     applyFilter(); V.invalidate();
     void byKey;
   }
 
-  // --- Daten → Objekte. Beim Zurückwechseln auf die Karte sind die Stores schon gefüllt und die Effekte
-  // laufen vor onMount — dann fehlt V noch; ingestAll() holt das nach dem Aufbau nach.
+  // --- Data → objects. When switching back to the map the stores are already filled and the effects
+  // run before onMount — V doesn't exist yet then; ingestAll() catches up after setup.
   function ingestStations(s: any) { objs.st = stationsObjs(s); applyGeo(V!, $geo, $powerlines, s); }
   function ingestAll() {
     if (!V) return;
@@ -84,28 +84,28 @@
       if (!V || ttFrame) return;
       const old = new Map(objs.lv.map(o => [o.key, o]));
       const nw = liveObjs(lv);
-      for (const o of nw) {            // weich zur neuen Position gleiten
+      for (const o of nw) {            // glide smoothly to the new position
         const p = old.get(o.key);
         if (p) { o.sx = p.x; o.sy = p.y; o.tx = o.x; o.ty = o.y; o.x = p.x; o.y = p.y; o.t0 = performance.now(); }
       }
       objs.lv = nw; rebuild();
     });
   });
-  // Spieler, die nicht online sind, werden nicht verfolgt (ihre Figur steht nur im Spiel herum).
-  // Das Ziel bleibt gemerkt: Kommt der Spieler online, geht das Folgen von selbst weiter.
+  // Players who are not online are not followed (their character just stands around in the game).
+  // The target is remembered: when the player comes online, following resumes by itself.
   const followState = $derived.by(() => {
     if (!follow) return 'off';
     if (!follow.startsWith('player:')) return 'active';
     const p = ($live?.players || []).find(x => 'player:' + x.name === follow);
     return !p ? 'gone' : p.online === true ? 'active' : 'offline';
   });
-  $effect(() => {                      // Folge-Modus: die Kamera führt die MapView im Render-Loop nach (gleiche Interpolation wie der Punkt)
+  $effect(() => {                      // Follow mode: MapView moves the camera along in the render loop (same interpolation as the dot)
     const f = followState === 'active' ? follow : '', s = sel, mob = isMobile;
     untrack(() => {
       if (!V) return;
       V.followKey = f || null;
       V.followOff = { x: !mob && s ? 380 : 0, y: mob && s ? 280 : 0 };
-      if (f) {                            // beim Einschalten einmal hinzoomen, danach nur noch mitführen
+      if (f) {                            // zoom in once when enabled, afterwards just track
         const o = V.objs.find(x => x.key === f);
         if (o && V.k < 1) { V.k = 1; V.invalidate(); }
         V.redraw();
@@ -114,7 +114,7 @@
   });
   $effect(() => { const t = $trails; untrack(() => { if (V) V.redraw(); void t; }); });
 
-  // --- Warenfluss: Erzeuger, Verbraucher, Stationen, Knoten und Bänder/Rohre einer Ware
+  // --- Item flow: producers, consumers, stations, nodes and belts/pipes of one item
   const flowInfo = $derived.by(() => {
     const it = flowItem;
     if (!it) return null;
@@ -138,7 +138,7 @@
     untrack(() => {
       if (!V) return;
       V.flowFocus = fi ? { keys: fi.keys, paths: fi.paths, color: '#f5f2ea' } : null;
-      // Maschinen- und Knoten-Ebene für die Dauer des Warenflusses sichtbar machen
+      // make machine and node layers visible while item flow is active
       if (fi) { V.layers = { ...layers, machines: true, nodes: true, generators: true }; }
       else V.layers = { ...layers };
       V.invalidate(); writeHash();
@@ -152,7 +152,7 @@
     V.fit(Math.min(...xs) - 100, Math.min(...ys) - 100, Math.max(...xs) + 100, Math.max(...ys) + 100);
   }
 
-  // Sammelobjekte: „noch 62 von 106“ im Ebenenmenü
+  // Collectibles: "62 of 106 left" in the layer menu
   const collectCount = $derived.by(() => {
     const c = $collectibles; if (!c) return {} as Record<string, string>;
     const o = c.open || {}, tot = c.total || {};
@@ -166,7 +166,7 @@
 
   $effect(() => { const r = zRange; untrack(() => { if (V) { V.zRange = r ? [r[0] - 3, r[1] + 3] : null; V.invalidate(); } }); });
 
-  // --- Messen: Strecke, Fläche, Höhe
+  // --- Measuring: distance, area, height
   const measureInfo = $derived.by(() => {
     const m = measure;
     if (!m || m.length < 2) return null;
@@ -177,11 +177,11 @@
     return { len, area, direct: Math.hypot(m[m.length - 1][0] - m[0][0], m[m.length - 1][1] - m[0][1]) };
   });
 
-  // --- Zeitreise: Bild → Kartenobjekte (Spieler/Züge/LKW) + Fabrik-Umriss nach damaligem Zustand
+  // --- Time travel: frame → map objects (players/trains/trucks) + factory outline by the state at that time
   function applyFrame(t: number | null, f: any) {
     ttFrame = f;
     if (!V) return;
-    if (!f) {                                      // zurück zu live
+    if (!f) {                                      // back to live
       if ($live) objs.lv = liveObjs($live);
       V.boxes = ($factory?.factories || []).map(x => ({ box: x.box, color: factoryColor(x), layer: 'factories' }));
       rebuild(); return;
@@ -189,7 +189,7 @@
     const pl = f.p.map((x: any) => ({ name: x[0], pos: [x[1] * 100, x[2] * 100, 0], online: !!x[3] }));
     const tr = f.tr.map((x: any) => ({ name: x[0], pos: [x[1] * 100, x[2] * 100, 0], speed: x[3], docked: !!x[4], derailed: false }));
     const liveTk = new Map(($live?.trucks || []).map(v => [v.id || v.name, v]));
-    const tk = f.tk.map((x: any) => ({ ...(liveTk.get(x[0]) || { name: x[0], type: 'LKW' }), id: x[0], pos: [x[1] * 100, x[2] * 100, 0], speed: x[3] }));
+    const tk = f.tk.map((x: any) => ({ ...(liveTk.get(x[0]) || { name: x[0], type: 'Truck' }), id: x[0], pos: [x[1] * 100, x[2] * 100, 0], speed: x[3] }));
     const old = new Map(objs.lv.map(o => [o.key, o]));
     const nw = liveObjs({ ...($live as any), players: pl, trains: tr, trucks: tk, source: 'frm' });
     for (const o of nw) { const p = old.get(o.key); if (p) { o.sx = p.x; o.sy = p.y; o.tx = o.x; o.ty = o.y; o.x = p.x; o.y = p.y; o.t0 = performance.now() - 4000; } }
@@ -203,7 +203,7 @@
     rebuild();
   }
 
-  // --- Filter (Suche, Chips) → V.hidden
+  // --- Filter (search, chips) → V.hidden
   function applyFilter() {
     if (!V) return;
     const qq = q.trim().toLowerCase();
@@ -227,7 +227,7 @@
     untrack(() => { if (V) { V.layers = L; V.labels = L.labels !== false; V.invalidate(); } });
   });
 
-  // --- Auswahl
+  // --- Selection
   function select(o: MapObj | null, center = true) {
     sel = o; if (!V) return;
     V.sel = o; V.links = [];
@@ -242,7 +242,7 @@
   }
   const pick = (key: string) => { const o = V?.objs.find(x => x.key === key); if (o) select(o); };
 
-  // --- Adresszeile
+  // --- Address bar
   let hashT = 0;
   function writeHash() {
     if (kiosk || !V) return;
@@ -251,8 +251,8 @@
       if (!V) return;
       const c = V.center();
       rememberView(c.x, c.y, V.k);
-      // Inzwischen auf eine andere Seite gewechselt? Dann die Adresse nicht zurück auf die Karte biegen.
-      // location.hash statt $route: der Router erfährt vom Wechsel erst mit dem hashchange-Ereignis, danach wäre es zu spät
+      // Switched to another page meanwhile? Then don't bend the address back to the map.
+      // location.hash instead of $route: the router only learns of the switch via the hashchange event, which would be too late
       if (!/^#\/(map|karte)(\?|$)/.test(location.hash)) return;
       replaceQuery('map', { x: String(Math.round(c.x)), y: String(Math.round(c.y)), z: V!.k.toFixed(3), ...(sel ? { sel: sel.key } : {}),
         ...(flowItem ? { item: flowItem } : {}), ...(pickMode ? { pick: pickMode } : {}) });
@@ -291,10 +291,10 @@
     scaleW = d * V.k; scaleTxt = d >= 1000 ? d / 1000 + ' km' : d + ' m';
   }
 
-  // --- Gesten
+  // --- Gestures
   onMount(() => {
     V = new MapView(cv);
-    (window as any).__fgmap = V;          // für Rauchtests (Kamera/Objekte lesen), sonst ungenutzt
+    (window as any).__fgmap = V;          // for smoke tests (read camera/objects), otherwise unused
     V.layers = { ...layers };
     V.labels = layers.labels !== false;
     V.onchange = () => { scalebar(); writeHash(); };
@@ -302,7 +302,7 @@
     V.overlays.push({ key: 'heat', layer: 'heat', draw: (c, v) => {
       const ms = ($factory?.machines || []).filter(m => m.state === 'stopped' && m.block !== 'full');
       if (!ms.length) return;
-      // Wärmebild in Weltkoordinaten einmal je Datenstand rendern (4 m/px), dann nur skaliert zeichnen
+      // render the heat map in world coordinates once per data snapshot (4 m/px), then just draw it scaled
       const key = ($factory?.at || 0) + ':' + ms.length;
       if (key !== heatKey) {
         heatKey = key;
@@ -317,7 +317,7 @@
           g.addColorStop(0, 'rgba(0,0,0,.22)'); g.addColorStop(1, 'rgba(0,0,0,0)');
           hc.fillStyle = g; hc.fillRect(px - r, py - r, 2 * r, 2 * r);
         }
-        // Dichte (Alpha) → Farbe: gelb bei wenig, rot bei viel
+        // density (alpha) → colour: yellow for low, red for high
         const img = hc.getImageData(0, 0, w, h), d = img.data;
         for (let i = 0; i < d.length; i += 4) {
           const a = d[i + 3] / 255; if (!a) continue;
@@ -338,7 +338,7 @@
       for (let i = 0; i < m.length; i++) {
         const x = v.sx(m[i][0]), y = v.sy(m[i][1]);
         c.fillStyle = '#f59a23'; c.beginPath(); c.arc(x, y, 4, 0, Math.PI * 2); c.fill();
-        if (i) {                                         // Teilstrecke an die Mitte schreiben
+        if (i) {                                         // label the segment length at its midpoint
           const d = Math.hypot(m[i][0] - m[i - 1][0], m[i][1] - m[i - 1][1]);
           const mx = (x + v.sx(m[i - 1][0])) / 2, my = (y + v.sy(m[i - 1][1])) / 2;
           c.strokeStyle = 'rgba(12,13,14,.9)'; c.lineWidth = 3.5; const t = d >= 1000 ? (d / 1000).toFixed(2) + ' km' : Math.round(d) + ' m';
@@ -351,7 +351,7 @@
       for (const n in T) {
         const pts = T[n]; if (pts.length < 2) continue;
         const now = Date.now() / 1000;
-        for (let i = 1; i < pts.length; i++) {       // ältere Abschnitte blasser
+        for (let i = 1; i < pts.length; i++) {       // older segments fainter
           c.globalAlpha = Math.max(.12, 1 - (now - pts[i][0]) / 7200) * .8;
           c.strokeStyle = '#f59a23'; c.beginPath();
           c.moveTo(v.sx(pts[i - 1][1]), v.sy(pts[i - 1][2])); c.lineTo(v.sx(pts[i][1]), v.sy(pts[i][2])); c.stroke();
@@ -393,7 +393,7 @@
     });
     cv.addEventListener('pointermove', e => {
       const p = loc(e);
-      if (!ptrs.has(e.pointerId)) {                        // Hover (Maus)
+      if (!ptrs.has(e.pointerId)) {                        // hover (mouse)
         if (e.pointerType === 'mouse' && !draw) {
           const o = V!.hit(p.x, p.y);
           if (o !== V!.hover) { V!.hover = o; V!.redraw(); }
@@ -421,15 +421,15 @@
       if (g?.t === 'pinch') { g = ptrs.size === 1 ? { t: 'pan', ...(() => { const p = [...ptrs.values()][0]; return { x0: p.x, y0: p.y }; })(), dx: V!.dx, dy: V!.dy, moved: 99 } : null; return; }
       if (g?.t === 'pan' && g.moved < (g.type === 'touch' ? 9 : 4) && e.type === 'pointerup') {
         const p = loc(e);
-        if (measure) {                                       // Messen: Punkt anhängen (nächstes Objekt einrasten)
+        if (measure) {                                       // measuring: append point (snap to nearest object)
           const o = V!.hit(p.x, p.y, 12);
           measure = [...measure, o ? [o.x, o.y] : [V!.wx(p.x), V!.wy(p.y)]];
           V!.redraw();
-        } else if (pickMode) {                               // Bauplatz für den Rechner wählen
+        } else if (pickMode) {                               // pick the build site for the planner
           const site = { x: Math.round(V!.wx(p.x)), y: Math.round(V!.wy(p.y)) };
           localStorage.setItem('fgmap.site', JSON.stringify(site));
           pickMode = null; location.hash = '#/planner';
-        } else if (draw) {                                   // Zeichenmodus: Punkte setzen
+        } else if (draw) {                                   // drawing mode: place points
           draw.pts = [...draw.pts, [Math.round(V!.wx(p.x)), Math.round(V!.wy(p.y))]];
           if (draw.shape === 'point') finishDraw();
           V!.redraw();
@@ -450,7 +450,7 @@
     cv.addEventListener('wheel', e => { e.preventDefault(); const p = loc(e); V!.zoomAt(p.x, p.y, Math.exp(-e.deltaY * .0016)); }, { passive: false });
     cv.addEventListener('dblclick', e => { if (draw && draw.shape !== 'point') { finishDraw(); } });
 
-    // Detailebene einmal laden (Binärpaket, ~180 KB gzip); erst nötig ab Zoom 0,8
+    // load the detail layer once (binary package, ~180 KB gzip); only needed from zoom 0.8
     fetch('/api/detail').then(r => r.ok ? r.arrayBuffer() : null).then(buf => {
       if (!buf || !V) return;
       const h = new Int32Array(buf, 0, 2), nt = h[0], nw = h[1];
@@ -464,7 +464,7 @@
       const m = $stations.map;
       if (!V!.img) V!.setImage('/map.jpg', { x: m.west / 100, y: m.north / 100, w: (m.east - m.west) / 100, h: (m.south - m.north) / 100 });
       if (!kiosk && ($route.q.has('x') || $route.q.has('item') || $route.q.has('sel') || $route.q.has('pick'))) { if (!$route.q.has('x')) fitFactory(); fromRoute(); }
-      else if ($prefs.lastView && !kiosk) {           // eigene Startansicht: dort weiter, wo man war
+      else if ($prefs.lastView && !kiosk) {           // own start view: continue where you left off
         const lv = $prefs.lastView; V!.k = lv.z; V!.dx = V!.w / 2 - lv.z * lv.x; V!.dy = V!.h / 2 - lv.z * lv.y; V!.invalidate();
       } else fitFactory();
       routeReady = true; scalebar();
@@ -492,7 +492,7 @@
     }
   }
 
-  // --- Zeichnen / Pins
+  // --- Drawing / pins
   function startDraw(shape: 'point' | 'line' | 'area') { draw = { shape, pts: [] }; select(null); }
   function finishDraw() {
     if (!draw) return;

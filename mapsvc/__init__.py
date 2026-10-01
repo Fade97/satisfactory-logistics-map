@@ -1,10 +1,10 @@
-"""Logistikkarte — Dienst in Modulen (aus mapd.py aufgeteilt am 30.09.2026).
+"""Logistics map — the service split into modules (split out of mapd.py on 2026-09-30).
 
-  core      gemeinsamer Zustand (ST), Datenbank (DB), Log, FRM-Status
-  factory   Warenbilanz, Blockadegrund, Veröffentlichen, Verlauf, Fabrik-Cluster
-  events    Ereignisse mit Flanke/Hysterese, Änderungsprotokoll, Wachstum, Lager-Warnungen
-  logistics Füllstände, Zugdurchsatz, Rundenzeiten, Fahrplan-Prüfung
-  collect   Takte: Save, FRM-Fabrik, Live, Sink
-  planner   Produktionsrechner-Anbindung (/api/plan)
-  http      Website + API
+  core      shared state (ST), database (DB), log, FRM status
+  factory   item balance, block reason, publishing, history, factory clusters
+  events    events with edge detection/hysteresis, change log, growth, storage warnings
+  logistics fill levels, train throughput, round times, schedule check
+  collect   loops: save, FRM factory, live, sink
+  planner   production planner integration (/api/plan)
+  http      website + API
 """

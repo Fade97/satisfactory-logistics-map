@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Logistikkarte — Dienst: sammelt Daten, führt Verlauf und Ereignisse, liefert Website + API.
+"""Logistics map — service: collects data, keeps history and events, serves website + API.
 
-Eine Instanz, drei Takte:
-  live   alle  5 s   FRM: Spieler, Fahrzeuge, Stationsstatus  → /api/live
-  werk   alle 60 s   FRM: Maschinen, Strom, Warenbilanz        → /api/factory, Verlauf, Ereignisse
-  save   alle 60 s   neues Save? (SAVE_SOURCE) → Stationen + Fabrik aus dem Save (Rückfall ohne FRM)
+One instance, three ticks:
+  live     every  5 s   FRM: players, vehicles, station status   → /api/live
+  factory  every 60 s   FRM: machines, power, item balance       → /api/factory, history, events
+  save     every 60 s   new save? (SAVE_SOURCE) → stations + factory from the save (fallback without FRM)
 
-Quelle je Bereich wird mitgeliefert (`source`: frm | save), damit die Website ehrlich anzeigen
-kann, wie alt ein Wert ist. Ohne FRM läuft alles aus dem Save (Auflösung: Autosave-Takt des Spiels).
-Einstellungen per Umgebungsvariablen, siehe README und .env.example.
+The source per area is included (`source`: frm | save), so the website can honestly show
+how old a value is. Without FRM everything runs from the save (resolution: the game's autosave interval).
+Settings via environment variables, see README and .env.example.
 
     python mapd.py [--port 8050] [--no-fetch]
 """
@@ -18,7 +18,7 @@ from mapsvc.core import ST, DB, log, DIST
 from mapsvc import source
 from mapsvc.collect import save_cycle, live_loop, factory_loop, save_loop, sink_loop
 from mapsvc.http import H, Server
-# Rückwärtskompatibel für Tests und Werkzeuge, die mapd.<funktion> nutzen
+# backwards compatible for tests and tools that use mapd.<function>
 from mapsvc.factory import balance, block_kind, clusters, publish_factory  # noqa: F401
 from mapsvc.logistics import schedule_check  # noqa: F401
 
@@ -27,7 +27,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--port', type=int, default=8050)
     ap.add_argument('--bind', default='0.0.0.0')
-    ap.add_argument('--no-fetch', action='store_true', help='nur saves/latest.sav lesen, nicht vom Server holen')
+    ap.add_argument('--no-fetch', action='store_true', help='only read saves/latest.sav, do not fetch from the server')
     a = ap.parse_args()
     log('Save source:', source.describe(), '· FRM:', __import__('frm').BASE or 'off')
     try:

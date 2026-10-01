@@ -1,5 +1,5 @@
 <script lang="ts">
-  // „Was ist los?“ — Lage auf einen Blick: Mangel, Strom, Störungen, Änderungen seit dem letzten Besuch.
+  // "What's going on?" — status at a glance: shortages, power, faults, changes since the last visit.
   import { onDestroy } from 'svelte';
   import { factory, live, status, stations, events, progress } from '../lib/api';
   import { toMap, go } from '../lib/router';
@@ -7,7 +7,7 @@
   import { tn } from '../lib/names';
   import { t, tr, lx, lxr, locale } from '../lib/i18n';
 
-  // Letzter Besuch: beim Verlassen der Seite speichern, nicht beim Öffnen — sonst ist „seit“ immer jetzt
+  // Last visit: store on leaving the page, not on opening — otherwise "since" is always now
   const LAST = 'fgmap.lastVisit';
   const since = +(localStorage.getItem(LAST) || 0) || Math.floor(Date.now() / 1000) - 86400;
   onDestroy(() => localStorage.setItem(LAST, String(Math.floor(Date.now() / 1000))));
@@ -15,12 +15,13 @@
 
   const f = $derived($factory);
   const power = $derived((f?.circuits || []).filter(c => c.cap > 0));
-  // Mangel: Ware wird verbraucht, aber weniger erzeugt — nach Maschinen gewichtet, die darauf warten
+  // Shortage: item is consumed but less is produced — weighted by machines waiting for it
   const shortages = $derived.by(() => {
     if (!f) return [];
     const waiting = new Map<string, number>();
     for (const m of f.machines) if (m.state === 'stopped' && m.block === 'starved' && m.why) {
-      const it = m.why.replace(/^[^:]*: /, '');   // „fehlt: X“ / englischer Backend-Text „…: X“ waiting.set(it, (waiting.get(it) || 0) + 1);
+      const it = m.why.replace(/^[^:]*: /, '');   // strip the "<reason>: " prefix, e.g. "Missing: "
+      waiting.set(it, (waiting.get(it) || 0) + 1);
     }
     return f.balance.map(b => ({ ...b, net: b.prod - b.cons, waiting: waiting.get(b.item) || 0 }))
       .filter(b => b.net < -0.5 || b.waiting >= 3)
@@ -28,14 +29,14 @@
   });
   const troubles = $derived.by(() => {
     const out: { text: string; go: () => void; level: string }[] = [];
-    for (const z of $live?.trains || []) if (z.derailed) out.push({ text: tr('Train {name} derailed', { name: z.name }), level: 'error', go: () => toMap('train:' + z.name, z.pos[0] / 100, z.pos[1] / 100) });
+    for (const train of $live?.trains || []) if (train.derailed) out.push({ text: tr('Train {name} derailed', { name: train.name }), level: 'error', go: () => toMap('train:' + train.name, train.pos[0] / 100, train.pos[1] / 100) });
     for (const v of $live?.trucks || []) if (v.fuel === false && v.autopilot) out.push({ text: tr('{name} out of fuel', { name: v.name }), level: 'warn', go: () => toMap('truck:' + (v.id || v.name), v.pos[0] / 100, v.pos[1] / 100) });
     const nop = (f?.machines || []).filter(m => m.nopower);
     if (nop.length) out.push({ text: tr('{n} machines not connected to power ({names})', { n: nop.length, names: [...new Set(nop.map(m => m.name))].slice(0, 3).join(', ') }), level: 'error',
       go: () => toMap('machine:' + nop[0].id, nop[0].pos[0], nop[0].pos[1]) });
     for (const c of f?.circuits || []) if (c.fuse) out.push({ text: tr('Fuse tripped in grid {id}', { id: c.id }), level: 'error', go: () => go('power') });
     const bal = new Map((f?.balance || []).map(b => [b.item, b.prod - b.cons]));
-    // Brennstoffpuffer im Gebäude ist klein; Warnung nur, wenn die Fabrik den Brennstoff nicht nachliefert
+    // the fuel buffer inside the building is small; warn only if the factory doesn't resupply the fuel
     for (const g of f?.generators || []) if (g.fuel_minutes != null && g.fuel_minutes < 30 && g.producing && !g.cls?.includes('Integrated') && (bal.get(g.fuel || '') ?? 0) < 0)
       { out.push({ text: tr('{name}: fuel lasts {dur}', { name: g.name, dur: dur(g.fuel_minutes) }), level: 'warn', go: () => toMap('generator:' + g.id, g.pos[0], g.pos[1]) }); break; }
     for (const x of f?.factories || []) if (x.status === 'active' && x.starved >= 4 && x.starved / x.n > .3)
@@ -44,7 +45,7 @@
       out.push({ text: tr('{name} is empty', { name: s.name }), level: 'info', go: () => toMap('station:' + s.id.split('.').pop(), s.pos[0] / 100, s.pos[1] / 100) });
     return out;
   });
-  // Ereignisse vor dem 30.09. nutzten noch „Maschinen stehen“ (inkl. voller Ausgänge) — ausblenden
+  // events since the last visit
   const recent = $derived($events.filter(e => e.t >= since));
   const onlineP = $derived(($live?.players || []).filter(p => p.online));
   const counts = $derived.by(() => {

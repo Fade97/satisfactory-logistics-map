@@ -1,16 +1,16 @@
 <script lang="ts">
-  // Höhenfilter: Etagen aus den Maschinenhöhen erkennen (4-m-Stufen, Häufungen ≥ 5), Bereich per Klick oder Regler.
+  // Height filter: detect floors from machine heights (4 m steps, clusters ≥ 5), range via click or slider.
   import { factory } from '../api';
   import { t } from '../i18n';
 
   let { zRange = $bindable(null), onclose }: { zRange?: [number, number] | null; onclose: () => void } = $props();
 
-  // Höhen der Maschinen in 4-m-Schritten bündeln, Häufungen ≥ 5 Maschinen sind Etagen
+  // bucket machine heights in 4 m steps; clusters of ≥ 5 machines are floors
   const floors = $derived.by(() => {
     const c = new Map<number, number>();
     for (const m of $factory?.machines || []) { const z = Math.round((m.z ?? 0) / 4) * 4; c.set(z, (c.get(z) || 0) + 1); }
     const fl = [...c.entries()].filter(([, n]) => n >= 5).sort((a, b) => a[0] - b[0]);
-    // benachbarte Stufen (≤ 8 m) zusammenfassen: eine Etage mit leicht versetzten Fundamenten
+    // merge neighbouring steps (≤ 8 m): one floor with slightly offset foundations
     const out: { lo: number; hi: number; n: number }[] = [];
     for (const [z, n] of fl) {
       const last = out[out.length - 1];

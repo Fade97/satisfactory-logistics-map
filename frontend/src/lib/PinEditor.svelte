@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Notiz anlegen/bearbeiten oder eine Fabrik umbenennen — beides verlangt das gemeinsame Passwort.
+  // Create/edit a note or rename a factory — both require the shared password.
   import { password, author, post, checkPassword } from './api';
   import { t, tr, lx, lxr } from './i18n';
 

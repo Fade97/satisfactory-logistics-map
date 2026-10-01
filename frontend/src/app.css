@@ -25,12 +25,12 @@ h1, h2, h3 { font-family: var(--cond); font-weight: 700; margin: 0; letter-spaci
 h1 { font-size: 28px; } h2 { font-size: 20px; } h3 { font-size: 16px; }
 .num { font-variant-numeric: tabular-nums; }
 
-/* Das eine Merkmal: gestanzte Ecke oben rechts wie in den Spielmenüs */
+/* The signature detail: notched top-right corner like the in-game menus */
 .panel {
   background: var(--plate); position: relative;
   clip-path: polygon(0 0, calc(100% - var(--notch)) 0, 100% var(--notch), 100% 100%, 0 100%);
 }
-.panel::before {           /* Orange Kante an der Stanzung */
+.panel::before {           /* orange edge along the notch */
   content: ''; position: absolute; top: 0; right: 0; width: calc(var(--notch) * 1.42); height: 2px;
   background: var(--ficsit); transform-origin: right top; transform: rotate(45deg) translate(0, 0); right: -1px;
 }

@@ -42,7 +42,7 @@
     const b = new Map((f?.balance || []).map(x => [x.item, x]));
     return gens.filter(g => g.fuel !== '—').map(g => {
       const x = b.get(g.fuel);
-      // Verbrauch der Ware ohne die Kraftwerke selbst = was andere Maschinen abzweigen
+      // item consumption minus the power plants themselves = what other machines divert
       const other = Math.max(0, (x?.cons ?? 0) - g.rate);
       return { fuel: g.fuel, need: g.rate, other, prod: x?.prod ?? 0 };
     });

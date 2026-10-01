@@ -1,9 +1,10 @@
-// Datenzugriff: pollt die API mit ETag, hält den Stand in Svelte-Stores.
+// Data access: polls the API with ETags, keeps the state in Svelte stores.
 import { writable, type Writable } from 'svelte/store';
 import type { Live, Stations, Factory, Geo, Node, Status, Progress, GameEvent, Pin } from './types';
+import { tr } from './i18n';
 
 const etags: Record<string, string> = {};
-let cached = false;                        // letzte Antworten kamen aus dem Service-Worker-Cache
+let cached = false;                        // last responses came from the service worker cache
 
 async function getJson<T>(name: string): Promise<T | null> {
   const h: Record<string, string> = {};
@@ -39,7 +40,7 @@ function poll<T>(name: string, store: Writable<T | null>, every: number) {
     try {
       const d = await getJson<T>(name);
       if (d !== null) store.set(d);
-      online.set(!cached);                     // Antwort aus dem Offline-Cache des Service Workers = nicht verbunden
+      online.set(!cached);                     // response from the service worker's offline cache = not connected
     } catch { online.set(false); }
   };
   run();
@@ -52,7 +53,7 @@ async function pollEvents() {
     const r = await fetch('/api/events?limit=200');
     const d: GameEvent[] = await r.json();
     if (d.length && d[0].id !== lastEvent) { lastEvent = d[0].id; events.set(d); }
-  } catch { /* offline, nächster Versuch */ }
+  } catch { /* offline, next attempt */ }
 }
 
 export async function loadPins() {
@@ -86,7 +87,7 @@ export async function series(keys: string[], since: number) {
   return r.json() as Promise<{ res: string; data: Record<string, [number, number][]> }>;
 }
 
-// ---------------------------------------------------------------- Schreiben (Passwort)
+// ---------------------------------------------------------------- Writing (password)
 const PW_KEY = 'fgmap.pw', AUTHOR_KEY = 'fgmap.author';
 export const password = writable<string>(localStorage.getItem(PW_KEY) || '');
 export const author = writable<string>(localStorage.getItem(AUTHOR_KEY) || '');
@@ -102,7 +103,7 @@ export async function post(path: string, body: unknown): Promise<any> {
   });
   const d = await r.json().catch(() => ({}));
   if (r.status === 403) password.set('');
-  if (!r.ok) throw new Error(d.error || 'Fehler ' + r.status);
+  if (!r.ok) throw new Error(d.error || tr('Error') + ' ' + r.status);
   return d;
 }
 export const checkPassword = (p: string) =>

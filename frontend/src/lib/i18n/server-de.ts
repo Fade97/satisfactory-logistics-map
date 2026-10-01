@@ -1,6 +1,6 @@
-// Backend-Texte (Englisch) → Deutsch über Musterpaare aus server-texts.json. Platzhalter {0} … fangen beliebigen Text;
-// eingefangene Teile werden erneut übersetzt (z. B. der Fabrikname in „{0}: {1} of {2} machines missing input“).
-// Dieselbe Datei nutzt das Backend einmalig, um ältere, noch deutsch gespeicherte Ereignisse auf Englisch umzustellen.
+// Backend texts (English) → German via pattern pairs from server-texts.json. Placeholders {0} … match any text;
+// captured parts are translated again (e.g. the factory name in "{0}: {1} of {2} machines missing input").
+// The backend uses the same file once to migrate older events still stored in German to English.
 import PAIRS from './server-texts.json';
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

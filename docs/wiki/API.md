@@ -4,9 +4,10 @@ All data on the website comes from an open JSON API — handy for your own analy
 Home Assistant. Responses carry an `ETag`; with `If-None-Match` you get `304` if nothing has changed.
 Coordinates: save world coordinates in **centimeters** (`pos`) or **meters** where stated; +X = east, +Y = south.
 
-Note: some enum values in the API are still German internally, e.g. factory status `aktiv|aufbau|puffer|stillgelegt`
-(active, under construction, buffer, decommissioned) and machine state `läuft|teilweise|steht|pausiert|aus`
-(running, partial, stopped, paused, off).
+Enum values: machine `state` = `running|partial|stopped|paused|off`; stopped machines have `block` =
+`full` (output full, intended buffer) | `starved` (missing input) | `unknown`; factory `status` =
+`active|building|buffer|decommissioned`; schedule check `verdict` = `ok|tight|bottleneck|unknown`;
+note `cat` = `planned|problem|resource|meetup|note`.
 
 ## Read (GET)
 | Endpoint | Contents | Updated |
@@ -40,7 +41,7 @@ Note: some enum values in the API are still German internally, e.g. factory stat
 | `/api/auth` | – (only checks the password) |
 | `/api/pins` | `{author, cat, color, text, shape: point\|line\|area, geom: [[x,y],…]}` |
 | `/api/pins/<id>/delete` | – |
-| `/api/factory-name` | `{key, name, status: aktiv\|aufbau\|puffer\|stillgelegt}` |
+| `/api/factory-name` | `{key, name, status: active\|building\|buffer\|decommissioned}` |
 
 ## Calculate (POST, no password)
 | Endpoint | Body |

@@ -1,10 +1,10 @@
-"""SQLite-Ablage der Logistikkarte: Zeitreihen, Ereignisse, Spielerspuren, Pins, Fabriknamen.
+"""SQLite storage of the logistics map: time series, events, player trails, pins, factory names.
 
-Verlauf in drei Stufen (Entscheidung 29.09.2026):
-  series_min  — Minutenwerte, 48 h
-  series_hour — Stundenmittel, 90 Tage
-  series_day  — Tagesmittel, für immer
-Schlüssel einer Reihe: z. B. 'prod:Iron Plate', 'cons:Iron Plate', 'power:229:prod', 'count:machines'.
+History in three tiers (decision 2026-09-29):
+  series_min  — per-minute values, 48 h
+  series_hour — hourly averages, 90 days
+  series_day  — daily averages, forever
+Series keys, e.g. 'prod:Iron Plate', 'cons:Iron Plate', 'power:229:prod', 'count:machines'.
 """
 import json, os, sqlite3, threading, time
 
@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS frames (t INTEGER PRIMARY KEY, data TEXT);
 MIN_KEEP = 48 * 3600
 HOUR_KEEP = 90 * 86400
 TRAIL_KEEP = 2 * 3600
-FRAME_KEEP = 24 * 3600          # Zeitreise: Minutenbilder der letzten 24 h
+FRAME_KEEP = 24 * 3600          # time travel: per-minute frames of the last 24 h
 
 
 class Store:
@@ -42,7 +42,7 @@ class Store:
         self.db.execute('PRAGMA synchronous=NORMAL')
         self.db.executescript(SCHEMA)
         cols = [r[1] for r in self.db.execute('PRAGMA table_info(factory_names)')]
-        if 'status' not in cols:                      # Migration: Fabrikstatus seit 30.09.2026
+        if 'status' not in cols:                      # migration: factory status since 2026-09-30
             self.db.execute('ALTER TABLE factory_names ADD COLUMN status TEXT')
         self.lock = threading.RLock()
         self._english_enums()
@@ -63,19 +63,19 @@ class Store:
             self.db.execute('UPDATE pins SET cat = ? WHERE cat = ?', (en, de))
         self.kv_put('enums_en', True)
 
-    # ------------------------------------------------------------ Zeitreihen
+    # ------------------------------------------------------------ time series
     def put_series(self, t, values):
-        """values: {key: float}; t auf die Minute gerundet (Unix-Sekunden)."""
+        """values: {key: float}; t rounded to the minute (Unix seconds)."""
         t = int(t) // 60 * 60
         with self.lock:
             self.db.executemany('INSERT OR REPLACE INTO series_min VALUES (?,?,?)',
                                 [(k, t, float(v)) for k, v in values.items() if v is not None])
 
     def compact(self, now=None):
-        """Minuten → Stunden → Tage verdichten und Altes löschen. Idempotent."""
+        """Compact minutes → hours → days and delete old data. Idempotent."""
         now = int(now or time.time())
         with self.lock:
-            done_h = now // 3600 * 3600                  # nur abgeschlossene Stunden
+            done_h = now // 3600 * 3600                  # completed hours only
             self.db.execute("""INSERT OR REPLACE INTO series_hour
                 SELECT key, t/3600*3600, AVG(v) FROM series_min WHERE t < ? AND t >= ?
                 GROUP BY key, t/3600""", (done_h, done_h - 3 * 3600))
@@ -90,15 +90,15 @@ class Store:
             self.db.execute('DELETE FROM events WHERE t < ?', (now - 30 * 86400,))
 
     def series(self, keys, since, until=None):
-        """Passende Auflösung je Zeitraum: ≤ 48 h Minuten, ≤ 90 d Stunden, sonst Tage."""
+        """Resolution matching the time span: ≤ 48 h minutes, ≤ 90 d hours, otherwise days."""
         until = int(until or time.time())
         span = until - since
         tabs = ['series_min', 'series_hour', 'series_day']
         i = 0 if span <= MIN_KEEP else 1 if span <= HOUR_KEEP else 2
         out = {}
         with self.lock:
-            # Gröbste passende Auflösung zuerst; ist sie (noch) leer, feinere nehmen — sonst zeigt
-            # eine junge Datenbank bei langen Zeiträumen gar nichts
+            # Coarsest matching resolution first; if it is (still) empty, use a finer one — otherwise
+            # a young database shows nothing for long time spans
             for tab in tabs[i::-1]:
                 if self.db.execute(f'SELECT 1 FROM {tab} LIMIT 1').fetchone():
                     break
@@ -118,7 +118,7 @@ class Store:
             return [r[0] for r in self.db.execute(
                 'SELECT DISTINCT key FROM series_min WHERE key LIKE ?', (prefix + '%',))]
 
-    # ------------------------------------------------------------ Ereignisse
+    # ------------------------------------------------------------ events
     def event(self, kind, level, text, ref=None, x=None, y=None, t=None):
         with self.lock:
             self.db.execute('INSERT INTO events (t, kind, level, text, ref, x, y) VALUES (?,?,?,?,?,?,?)',
@@ -130,7 +130,7 @@ class Store:
                                    'ORDER BY id DESC LIMIT ?', (since, limit)).fetchall()
         return [dict(id=r[0], t=r[1], kind=r[2], level=r[3], text=r[4], ref=r[5], x=r[6], y=r[7]) for r in rows]
 
-    # ------------------------------------------------------------ Spuren
+    # ------------------------------------------------------------ trails
     def trail_add(self, t, players):
         with self.lock:
             self.db.executemany('INSERT OR REPLACE INTO trail VALUES (?,?,?,?)',
@@ -143,14 +143,14 @@ class Store:
                 out.setdefault(n, []).append([t, round(x), round(y)])
         return out
 
-    # ------------------------------------------------------------ Zeitreise
+    # ------------------------------------------------------------ time travel
     def frame_put(self, t, data):
-        """Ein Bild je Minute: Positionen (m, ganzzahlig) von Spielern/Zügen/LKW, Zustand je Fabrik, Strom."""
+        """One frame per minute: positions (m, integer) of players/trains/trucks, state per factory, power."""
         with self.lock:
             self.db.execute('INSERT OR REPLACE INTO frames VALUES (?,?)', (int(t) // 60 * 60, json.dumps(data, separators=(',', ':'))))
 
     def frames(self, since, until=None, step=60):
-        """Bilder im Zeitraum; step > 60 dünnt aus (für lange Zeiträume auf dem Handy)."""
+        """Frames in the time span; step > 60 thins them out (for long spans on mobile)."""
         until = int(until or time.time())
         with self.lock:
             rows = self.db.execute('SELECT t, data FROM frames WHERE t BETWEEN ? AND ? ORDER BY t', (since, until)).fetchall()
@@ -181,14 +181,14 @@ class Store:
         with self.lock:
             self.db.execute('DELETE FROM pins WHERE id=?', (pid,))
 
-    # ------------------------------------------------------------ Fabriknamen
+    # ------------------------------------------------------------ factory names
     def factory_names(self):
         with self.lock:
             return {k: dict(name=n, author=a, status=s) for k, n, a, s in
                     self.db.execute('SELECT key, name, author, status FROM factory_names')}
 
     def factory_rename(self, key, name, author, status=None):
-        """Name und/oder Status setzen; beides leer → Eintrag weg (Automatik gilt wieder)."""
+        """Set name and/or status; both empty → entry removed (automatic naming applies again)."""
         with self.lock:
             if name or (status and status != 'active'):
                 self.db.execute('INSERT OR REPLACE INTO factory_names (key, name, t, author, status) VALUES (?,?,?,?,?)',
@@ -196,7 +196,7 @@ class Store:
             else:
                 self.db.execute('DELETE FROM factory_names WHERE key=?', (key,))
 
-    # ------------------------------------------------------------ Schnappschüsse (Änderungsprotokoll)
+    # ------------------------------------------------------------ snapshots (change log)
     def snapshot_get(self, key):
         with self.lock:
             r = self.db.execute('SELECT t, data FROM snapshot WHERE key=?', (key,)).fetchone()

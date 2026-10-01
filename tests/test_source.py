@@ -1,4 +1,4 @@
-"""Save-Quellen (mapsvc/source.py): Ordner, FTP und Server-API gegen lokale Testserver — ohne echtes Save."""
+"""Save sources (mapsvc/source.py): folder, FTP and server API against local test servers — without a real save."""
 import json, os, ssl, subprocess, sys, threading, time
 import http.server
 
@@ -7,7 +7,7 @@ import pytest
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mapsvc import source  # noqa: E402
 
-SAV = b'\xc1\x83\x2a\x9e' + b'x' * 4000          # Inhalt egal, nur > 1 KB
+SAV = b'\xc1\x83\x2a\x9e' + b'x' * 4000          # content irrelevant, just > 1 KB
 
 
 @pytest.fixture
@@ -25,49 +25,49 @@ def put(path, age, data=SAV):
     os.utime(path, (t, t))
 
 
-# ---------------------------------------------------------------- Ordner
+# ---------------------------------------------------------------- folder
 def test_dir_newest_recursive_and_change(saves, tmp_path):
     src = tmp_path / 'SaveGames'
-    put(src / 'server' / 'Welt_autosave_0.sav', 600)
-    put(src / '76561198000000000' / 'Welt_autosave_1.sav', 300)      # Windows-Unterordner
-    put(src / 'server' / 'notizen.txt', 10)
+    put(src / 'server' / 'World_autosave_0.sav', 600)
+    put(src / '76561198000000000' / 'World_autosave_1.sav', 300)      # Windows subfolder
+    put(src / 'server' / 'notes.txt', 10)
     path, name, mtime, changed = source.fetch_latest(str(src))
-    assert name == 'Welt_autosave_1.sav' and changed
+    assert name == 'World_autosave_1.sav' and changed
     assert open(path, 'rb').read() == SAV
-    assert source.fetch_latest(str(src))[3] is False                 # unverändert → nicht neu laden
-    put(src / 'server' / 'Welt_autosave_2.sav', 60)
-    assert source.fetch_latest(str(src))[1:4:2] == ('Welt_autosave_2.sav', True)
+    assert source.fetch_latest(str(src))[3] is False                 # unchanged → do not reload
+    put(src / 'server' / 'World_autosave_2.sav', 60)
+    assert source.fetch_latest(str(src))[1:4:2] == ('World_autosave_2.sav', True)
 
 
 def test_dir_skips_file_being_written(saves, tmp_path):
     src = tmp_path / 'SaveGames'
     put(src / 'a.sav', 300)
     source.fetch_latest(str(src))
-    put(src / 'b.sav', 1)                                             # gerade geschrieben
+    put(src / 'b.sav', 1)                                             # just written
     assert source.fetch_latest(str(src))[1:4:2] == ('a.sav', False)
 
 
 def test_dir_pattern_and_errors(saves, tmp_path, monkeypatch):
     src = tmp_path / 'SaveGames'
-    put(src / 'Alt_autosave_0.sav', 60)
-    put(src / 'Neu_autosave_0.sav', 600)
-    monkeypatch.setattr(source, 'PATTERN', 'Neu_*.sav')
-    assert source.fetch_latest(str(src))[1] == 'Neu_autosave_0.sav'
+    put(src / 'Old_autosave_0.sav', 60)
+    put(src / 'New_autosave_0.sav', 600)
+    monkeypatch.setattr(source, 'PATTERN', 'New_*.sav')
+    assert source.fetch_latest(str(src))[1] == 'New_autosave_0.sav'
     with pytest.raises(source.SourceError):
-        source.fetch_latest(str(tmp_path / 'fehlt'))
+        source.fetch_latest(str(tmp_path / 'missing'))
     with pytest.raises(source.SourceError):
         source.fetch_latest('gopher://x/y')
 
 
 def test_default_is_saves_folder(saves):
-    put(saves / 'Hochgeladen.sav', 120)
+    put(saves / 'Uploaded.sav', 120)
     path, name, _, changed = source.fetch_latest('')
-    assert name == 'Hochgeladen.sav' and path.endswith('latest.sav') and changed
+    assert name == 'Uploaded.sav' and path.endswith('latest.sav') and changed
 
 
 def test_describe_hides_password():
-    d = source.describe('sftp://nutzer:geheim@host.example:2022/pfad')
-    assert 'geheim' not in d and 'nutzer@host.example:2022/pfad' in d
+    d = source.describe('sftp://user:secret@host.example:2022/path')
+    assert 'secret' not in d and 'user@host.example:2022/path' in d
     assert source.describe('/srv/saves') == 'folder /srv/saves'
 
 
@@ -83,26 +83,26 @@ def test_ftp(saves, tmp_path):
     from pyftpdlib.handlers import FTPHandler
     from pyftpdlib.servers import FTPServer
     root = tmp_path / 'ftp'
-    put(root / 'SaveGames' / 'server' / 'Welt_1.sav', 900)
-    put(root / 'SaveGames' / 'server' / 'Welt_2.sav', 300)
+    put(root / 'SaveGames' / 'server' / 'World_1.sav', 900)
+    put(root / 'SaveGames' / 'server' / 'World_2.sav', 300)
     auth = DummyAuthorizer()
-    auth.add_user('spieler', 'pw', str(root), perm='elr')
+    auth.add_user('player', 'pw', str(root), perm='elr')
     FTPHandler.authorizer = auth
     srv = FTPServer(('127.0.0.1', 0), FTPHandler)
     port = srv.socket.getsockname()[1]
     threading.Thread(target=srv.serve_forever, kwargs=dict(timeout=0.2), daemon=True).start()
     try:
-        path, name, mtime, changed = source.fetch_latest('ftp://spieler:pw@127.0.0.1:%d/SaveGames/server' % port)
-        assert name == 'Welt_2.sav' and changed and abs(mtime - (time.time() - 300)) < 5
+        path, name, mtime, changed = source.fetch_latest('ftp://player:pw@127.0.0.1:%d/SaveGames/server' % port)
+        assert name == 'World_2.sav' and changed and abs(mtime - (time.time() - 300)) < 5
         assert open(path, 'rb').read() == SAV
     finally:
         srv.close_all()
 
 
-# ---------------------------------------------------------------- Server-API (nachgebaut, HTTPS)
+# ---------------------------------------------------------------- server API (mocked, HTTPS)
 def test_api(saves, tmp_path, monkeypatch):
     if subprocess.run(['which', 'openssl'], capture_output=True).returncode:
-        pytest.skip('openssl fehlt')
+        pytest.skip('openssl missing')
     cert = tmp_path / 'c.pem'
     subprocess.run(['openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=localhost',
                     '-keyout', str(cert), '-out', str(cert)], capture_output=True, check=True)
@@ -123,12 +123,12 @@ def test_api(saves, tmp_path, monkeypatch):
                 return self._json({'errorCode': 'invalid_token'}, 401)
             if fn == 'EnumerateSessions':
                 return self._json({'data': {'currentSessionIndex': 1, 'sessions': [
-                    {'sessionName': 'Alt', 'saveHeaders': [{'saveName': 'Alt_autosave_0', 'saveDateTime': '2026.09.30-11.59.00'}]},
-                    {'sessionName': 'Welt', 'saveHeaders': [
-                        {'saveName': 'Welt_autosave_0', 'saveDateTime': '2026.09.30-11.00.00'},
-                        {'saveName': 'Welt_autosave_1', 'saveDateTime': '2026.09.30-11.05.00'}]}]}})
+                    {'sessionName': 'Old', 'saveHeaders': [{'saveName': 'Old_autosave_0', 'saveDateTime': '2026.09.30-11.59.00'}]},
+                    {'sessionName': 'World', 'saveHeaders': [
+                        {'saveName': 'World_autosave_0', 'saveDateTime': '2026.09.30-11.00.00'},
+                        {'saveName': 'World_autosave_1', 'saveDateTime': '2026.09.30-11.05.00'}]}]}})
             if fn == 'DownloadSaveGame':
-                assert req['data']['SaveName'] == 'Welt_autosave_1'
+                assert req['data']['SaveName'] == 'World_autosave_1'
                 self.send_response(200)
                 self.send_header('Content-Type', 'application/octet-stream')
                 self.send_header('Content-Length', str(len(SAV)))
@@ -151,15 +151,15 @@ def test_api(saves, tmp_path, monkeypatch):
     url = 'api://127.0.0.1:%d' % srv.server_address[1]
     monkeypatch.setattr(source, '_token', [''])
     try:
-        monkeypatch.setattr(source, 'PASSWORD', 'falsch')
+        monkeypatch.setattr(source, 'PASSWORD', 'wrong')
         with pytest.raises(source.SourceError, match='401'):
             source.fetch_latest(url)
         monkeypatch.setattr(source, 'PASSWORD', 'admin')
         path, name, mtime, changed = source.fetch_latest(url)
-        assert name == 'Welt_autosave_1.sav' and changed and open(path, 'rb').read() == SAV
-        assert source.fetch_latest(url)[3] is False                  # gleiche Version → kein Download
+        assert name == 'World_autosave_1.sav' and changed and open(path, 'rb').read() == SAV
+        assert source.fetch_latest(url)[3] is False                  # same version → no download
         assert calls.count('DownloadSaveGame') == 1
-        source._token[0] = 'abgelaufen'                              # Token ungültig → neu anmelden
-        assert source.fetch_latest(url)[1] == 'Welt_autosave_1.sav'
+        source._token[0] = 'expired'                                 # token invalid → log in again
+        assert source.fetch_latest(url)[1] == 'World_autosave_1.sav'
     finally:
         srv.shutdown()

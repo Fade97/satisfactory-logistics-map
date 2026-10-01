@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Zeitreihe als SVG: eine Achse, 2px-Linien, Legende ab zwei Reihen, Fadenkreuz + Tooltip.
-  // Farben aus SERIES (validiert gegen #1b1c1e, dataviz-Validator 29.09.2026) — feste Reihenfolge.
+  // Time series as SVG: one axis, 2px lines, legend from two series up, crosshair + tooltip.
+  // Colours from SERIES (validated against #1b1c1e, dataviz validator 2026-09-29) — fixed order.
   import { SERIES, fmtNum } from './fmt';
   import { t, locale } from './i18n';
 
@@ -33,7 +33,7 @@
     return span > 3 * 86400 ? d.toLocaleDateString(locale(), { day: '2-digit', month: '2-digit' })
       : d.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });
   }
-  // Lücken (Spielpause, Dienst aus) nicht überbrücken: Sprung > 3× typischer Abstand → neuer Linienzug
+  // Don't bridge gaps (game paused, service down): jump > 3× typical interval → new polyline
   function step(pts: [number, number][]) {
     const d = pts.slice(1).map((p, i) => p[0] - pts[i][0]).sort((a, b) => a - b);
     return d.length ? d[Math.floor(d.length / 2)] : 60;
@@ -42,7 +42,7 @@
     const gap = step(pts) * 3;
     return pts.map((p, i) => (i === 0 || p[0] - pts[i - 1][0] > gap ? 'M' : 'L') + X(p[0]).toFixed(1) + ',' + Y(p[1]).toFixed(1)).join('');
   };
-  // Flächen je zusammenhängendem Abschnitt schließen
+  // close areas per contiguous segment
   const segments = (pts: [number, number][]) => {
     const gap = step(pts) * 3, out: [number, number][][] = [];
     for (const [i, p] of pts.entries()) { if (i === 0 || p[0] - pts[i - 1][0] > gap) out.push([]); out[out.length - 1].push(p); }

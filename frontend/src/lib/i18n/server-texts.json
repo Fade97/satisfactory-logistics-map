@@ -1,64 +1,282 @@
 [
-  ["Live data (FRM) lost — the map continues from the save", "Live-Daten (FRM) ausgefallen — Karte läuft aus dem Save weiter"],
-  ["Live data (FRM) is back", "Live-Daten (FRM) wieder da"],
-  ["Fuse tripped in grid {0}", "Sicherung ausgelöst in Netz {0}"],
-  ["Battery in grid {0} below 20 %", "Batterie in Netz {0} unter 20 %"],
-  ["{0} machines not connected to power", "{0} Maschinen ohne Stromanschluss"],
-  ["{0}: {1} of {2} machines missing input", "{0}: {1} von {2} Maschinen fehlt Material"],
-  ["{0} is online", "{0} ist online"],
-  ["{0} is offline", "{0} ist offline"],
-  ["{0} died", "{0} ist gestorben"],
-  ["Train {0} derailed", "Zug {0} entgleist"],
-  ["Truck {0} out of fuel", "LKW {0} ohne Treibstoff"],
-  ["{0} {1} out of fuel", "{0} {1} ohne Treibstoff"],
-  ["Station {0} reports an error", "Station {0} meldet Fehler"],
-  ["{0} built ({1})", "{0} gebaut ({1})"],
-  ["{0} built", "{0} gebaut"],
-  ["{0} removed ({1})", "{0} abgerissen ({1})"],
-  ["{0} removed", "{0} abgerissen"],
-  ["Unlocked: {0}", "Freigeschaltet: {0}"],
-  ["Storage full ({0}), {1} machines backed up", "Lager voll ({0}), {1} Maschinen stauen davor"],
-  ["{0}: note “{1}”", "{0}: Notiz „{1}“"],
-  ["Output full: {0}", "Ausgang voll: {0}"],
-  ["Missing: {0}", "fehlt: {0}"],
-  ["No power — not connected to a power grid", "kein Strom — nicht an ein Stromnetz angeschlossen"],
-  ["{0} Factory {1}", "{0}-Fabrik {1}"],
-  ["{0} Factory", "{0}-Fabrik"],
-  ["{0} Mining {1}", "{0}-Abbau {1}"],
-  ["{0} Mining", "{0}-Abbau"],
-  ["Extracting {0}", "Abbau {0}"],
-  ["(unknown)", "(unbekannt)"],
-  ["(unnamed)", "(unbenannt)"],
-  ["(unnamed train)", "(unbenannter Zug)"],
-  ["Save {0} · saved {1}", "Save {0} · Spielstand vom {1}"],
-  ["Save not readable: {0}", "Save nicht lesbar: {0}"],
-  ["no data yet", "noch keine Daten"],
-  ["Too many failed attempts, wait 10 minutes", "zu viele Fehlversuche, 10 min warten"],
-  ["Wrong password", "Passwort falsch"],
-  ["internal error", "interner Fehler"],
-  ["Invalid geometry", "Geometrie ungültig"],
-  ["Invalid input", "ungültige Angaben"],
-  ["Invalid request", "ungültige Anfrage"],
-  ["Unknown item or invalid amount", "Unbekannte Ware oder ungültige Menge"],
-  ["Add at least one target", "Mindestens ein Ziel angeben"],
-  ["Planner is busy, try again in a moment", "Rechner ausgelastet, gleich nochmal versuchen"],
-  ["Not possible with the allowed recipes", "Mit den erlaubten Rezepten nicht herstellbar"],
-  ["No template for {0} yet — only Constructor and Smelter so far.", "Für {0} gibt es noch keine Vorlage — bisher nur Constructor und Smelter."],
-  ["Asset path of recipe {0} unknown.", "Asset-Pfad des Rezepts {0} unbekannt."],
-  ["{0} machines needed, the template has {1}. Place several blueprints side by side ({2} each).", "{0} Maschinen nötig, die Vorlage hat {1}. Mehrere Blueprints nebeneinander setzen (je {2})."],
-  ["Generated blueprint has {0} unreadable objects", "Erzeugtes Blueprint hat {0} unlesbare Objekte"],
-  ["Reference to a removed object left — blueprint discarded", "Verweis auf entferntes Objekt übrig — Blueprint verworfen"],
-  ["FRM not configured (FRM_URL empty)", "FRM nicht eingerichtet (FRM_URL leer)"],
-  ["unknown save source {0} (allowed: folder, sftp://, ftp://, ftps://, api://)", "unbekannte Save-Quelle {0} (erlaubt: Ordner, sftp://, ftp://, ftps://, api://)"],
-  ["Save {0} is empty or incomplete", "Save {0} ist leer oder unvollständig"],
-  ["no save ({0}) in folder {1}", "kein Save ({0}) in Ordner {1}"],
-  ["no save ({0}) in {1}", "kein Save ({0}) in {1}"],
-  ["folder {0} not found", "Ordner {0} fehlt"],
-  ["SFTP needs paramiko (pip install paramiko)", "SFTP braucht paramiko (pip install paramiko)"],
-  ["Server API needs SAVE_PASSWORD (admin password) or SAVE_TOKEN", "Server-API braucht SAVE_PASSWORD (Admin-Passwort) oder SAVE_TOKEN"],
-  ["Server API: no session found", "Server-API: keine Session gefunden"],
-  ["Server API: session {0} has no save", "Server-API: Session {0} hat kein Save"],
-  ["Server API: DownloadSaveGame returned no file", "Server-API: DownloadSaveGame lieferte keine Datei"],
-  ["Server API {0} not reachable: {1}", "Server-API {0} nicht erreichbar: {1}"],
-  ["Server API {0}: {1}", "Server-API {0}: {1}"]
+  [
+    "Live data (FRM) lost — the map continues from the save",
+    "Live-Daten (FRM) ausgefallen — Karte läuft aus dem Save weiter"
+  ],
+  [
+    "Live data (FRM) is back",
+    "Live-Daten (FRM) wieder da"
+  ],
+  [
+    "Fuse tripped in grid {0}",
+    "Sicherung ausgelöst in Netz {0}"
+  ],
+  [
+    "Battery in grid {0} below 20 %",
+    "Batterie in Netz {0} unter 20 %"
+  ],
+  [
+    "{0} machines not connected to power",
+    "{0} Maschinen ohne Stromanschluss"
+  ],
+  [
+    "{0}: {1} of {2} machines missing input",
+    "{0}: {1} von {2} Maschinen fehlt Material"
+  ],
+  [
+    "{0} is online",
+    "{0} ist online"
+  ],
+  [
+    "{0} is offline",
+    "{0} ist offline"
+  ],
+  [
+    "{0} died",
+    "{0} ist gestorben"
+  ],
+  [
+    "Train {0} derailed",
+    "Zug {0} entgleist"
+  ],
+  [
+    "Truck {0} out of fuel",
+    "LKW {0} ohne Treibstoff"
+  ],
+  [
+    "Tractor {0} out of fuel",
+    "Traktor {0} ohne Treibstoff"
+  ],
+  [
+    "Explorer {0} out of fuel",
+    "Explorer {0} ohne Treibstoff"
+  ],
+  [
+    "{0} {1} out of fuel",
+    "{0} {1} ohne Treibstoff"
+  ],
+  [
+    "Station {0} reports an error",
+    "Station {0} meldet Fehler"
+  ],
+  [
+    "{0} built ({1})",
+    "{0} gebaut ({1})"
+  ],
+  [
+    "{0} built",
+    "{0} gebaut"
+  ],
+  [
+    "{0} removed ({1})",
+    "{0} abgerissen ({1})"
+  ],
+  [
+    "{0} removed",
+    "{0} abgerissen"
+  ],
+  [
+    "Unlocked: {0}",
+    "Freigeschaltet: {0}"
+  ],
+  [
+    "Storage full ({0}), {1} machines backed up",
+    "Lager voll ({0}), {1} Maschinen stauen davor"
+  ],
+  [
+    "{0}: note “{1}”",
+    "{0}: Notiz „{1}“"
+  ],
+  [
+    "Output full: {0}",
+    "Ausgang voll: {0}"
+  ],
+  [
+    "Missing: {0}",
+    "fehlt: {0}"
+  ],
+  [
+    "No power — not connected to a power grid",
+    "kein Strom — nicht an ein Stromnetz angeschlossen"
+  ],
+  [
+    "{0} Factory {1}",
+    "{0}-Fabrik {1}"
+  ],
+  [
+    "{0} Factory",
+    "{0}-Fabrik"
+  ],
+  [
+    "{0} Mining {1}",
+    "{0}-Abbau {1}"
+  ],
+  [
+    "{0} Mining",
+    "{0}-Abbau"
+  ],
+  [
+    "Extracting {0}",
+    "Abbau {0}"
+  ],
+  [
+    "(unknown)",
+    "(unbekannt)"
+  ],
+  [
+    "(unnamed)",
+    "(unbenannt)"
+  ],
+  [
+    "(unnamed train)",
+    "(unbenannter Zug)"
+  ],
+  [
+    "Save {0} · saved {1}",
+    "Save {0} · Spielstand vom {1}"
+  ],
+  [
+    "Save not readable: {0}",
+    "Save nicht lesbar: {0}"
+  ],
+  [
+    "no data yet",
+    "noch keine Daten"
+  ],
+  [
+    "Too many failed attempts, wait 10 minutes",
+    "zu viele Fehlversuche, 10 min warten"
+  ],
+  [
+    "Wrong password",
+    "Passwort falsch"
+  ],
+  [
+    "internal error",
+    "interner Fehler"
+  ],
+  [
+    "Invalid geometry",
+    "Geometrie ungültig"
+  ],
+  [
+    "Invalid input",
+    "ungültige Angaben"
+  ],
+  [
+    "Invalid request",
+    "ungültige Anfrage"
+  ],
+  [
+    "Unknown item or invalid amount",
+    "Unbekannte Ware oder ungültige Menge"
+  ],
+  [
+    "Add at least one target",
+    "Mindestens ein Ziel angeben"
+  ],
+  [
+    "Planner is busy, try again in a moment",
+    "Rechner ausgelastet, gleich nochmal versuchen"
+  ],
+  [
+    "Not possible with the allowed recipes",
+    "Mit den erlaubten Rezepten nicht herstellbar"
+  ],
+  [
+    "No template for {0} yet — only Constructor and Smelter so far.",
+    "Für {0} gibt es noch keine Vorlage — bisher nur Constructor und Smelter."
+  ],
+  [
+    "Asset path of recipe {0} unknown.",
+    "Asset-Pfad des Rezepts {0} unbekannt."
+  ],
+  [
+    "{0} machines needed, the template has {1}. Place several blueprints side by side ({2} each).",
+    "{0} Maschinen nötig, die Vorlage hat {1}. Mehrere Blueprints nebeneinander setzen (je {2})."
+  ],
+  [
+    "Generated blueprint has {0} unreadable objects",
+    "Erzeugtes Blueprint hat {0} unlesbare Objekte"
+  ],
+  [
+    "Reference to a removed object left — blueprint discarded",
+    "Verweis auf entferntes Objekt übrig — Blueprint verworfen"
+  ],
+  [
+    "FRM not configured (FRM_URL empty)",
+    "FRM nicht eingerichtet (FRM_URL leer)"
+  ],
+  [
+    "unknown save source {0} (allowed: folder, sftp://, ftp://, ftps://, api://)",
+    "unbekannte Save-Quelle {0} (erlaubt: Ordner, sftp://, ftp://, ftps://, api://)"
+  ],
+  [
+    "Save {0} is empty or incomplete",
+    "Save {0} ist leer oder unvollständig"
+  ],
+  [
+    "no save ({0}) in folder {1}",
+    "kein Save ({0}) in Ordner {1}"
+  ],
+  [
+    "no save ({0}) in {1}",
+    "kein Save ({0}) in {1}"
+  ],
+  [
+    "folder {0} not found",
+    "Ordner {0} fehlt"
+  ],
+  [
+    "SFTP needs paramiko (pip install paramiko)",
+    "SFTP braucht paramiko (pip install paramiko)"
+  ],
+  [
+    "Server API needs SAVE_PASSWORD (admin password) or SAVE_TOKEN",
+    "Server-API braucht SAVE_PASSWORD (Admin-Passwort) oder SAVE_TOKEN"
+  ],
+  [
+    "Server API: no session found",
+    "Server-API: keine Session gefunden"
+  ],
+  [
+    "Server API: session {0} has no save",
+    "Server-API: Session {0} hat kein Save"
+  ],
+  [
+    "Server API: DownloadSaveGame returned no file",
+    "Server-API: DownloadSaveGame lieferte keine Datei"
+  ],
+  [
+    "Server API {0} not reachable: {1}",
+    "Server-API {0} nicht erreichbar: {1}"
+  ],
+  [
+    "Server API {0}: {1}",
+    "Server-API {0}: {1}"
+  ],
+  [
+    "Crash Site",
+    "Absturzstelle"
+  ],
+  [
+    "Tractor",
+    "Traktor"
+  ],
+  [
+    "Locomotive",
+    "Lok"
+  ],
+  [
+    "Freight Car",
+    "Güterwaggon"
+  ],
+  [
+    "FICSIT Factory Cart",
+    "FICSIT-Fabrikwagen"
+  ],
+  [
+    "Golden Factory Cart",
+    "Goldener Fabrikwagen"
+  ]
 ]

@@ -6,12 +6,13 @@
 
   let { onclose = () => {}, compact = false }: { onclose?: () => void; compact?: boolean } = $props();
   const KINDS: Record<string, string> = {
-    '': tr('All'), stoerung: tr('Issues'), versorgung: tr('Supply'), player: tr('Player'), fortschritt: tr('Progress'),
+    '': tr('All'), issues: tr('Issues'), supply: tr('Supply'), player: tr('Player'), progress: tr('Progress'),
   };
+  // event kind → filter group
   const GROUP: Record<string, string> = {
-    fuse: 'stoerung', derail: 'stoerung', nofuel: 'stoerung', stall: 'stoerung', system: 'stoerung',
-    empty: 'versorgung', full: 'versorgung', battery: 'versorgung', fuel: 'versorgung',
-    player: 'player', build: 'fortschritt', progress: 'fortschritt', pin: 'fortschritt',
+    fuse: 'issues', derail: 'issues', nofuel: 'issues', stall: 'issues', system: 'issues',
+    empty: 'supply', full: 'supply', battery: 'supply', fuel: 'supply',
+    player: 'player', build: 'progress', progress: 'progress', pin: 'progress',
   };
   let f = $state('');
   const list = $derived($events.filter(e => !f || GROUP[e.kind] === f));

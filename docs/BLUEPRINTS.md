@@ -8,18 +8,18 @@ blueprint header version 2, save version 60 (new UE 5.4+ property tag format —
 |---|---|
 | `sbp.py` | Parser/writer for `.sbp`. `python3 sbp.py <folder>` = round-trip test, `python3 sbp.py dump <file.sbp> [full]` = show contents. |
 | `sav.py` | Reader for `.sav` (read-only): `load_index(path)` returns all objects as `name -> (header, raw data)`, `show(idx, name)` prints properties. |
-| `gen.py` | Generator for the railway set (below). Geometry is global in cm and is cut into 40 m boxes automatically. Needs a blueprint "Asphalt + Schiene - Gerade" from your own game as a template (path `SRC` at the top of the file). |
+| `gen.py` | Generator for the railway set (below). Geometry is global in cm and is cut into 40 m boxes automatically. Needs a blueprint "Asphalt + Schiene - Gerade" from your own game as a template (`SRC` / `TEMPLATE` at the top of the file). |
 | `bpgen.py` | Blueprint from the production planner (experimental): templates in `gamedata/templates/`, sets recipe and clock speed, removes surplus machines including their power cables, checks the round trip. |
-| `blueprints/bahn-set/` | Finished blueprints of the railway set plus overview drawings (`_*.png`). |
-| `blueprints/vom-server/` | Versions adjusted in the game (design reference). |
+| `blueprints/rail-set/` | Finished blueprints of the railway set plus overview drawings (`_*.png`). |
+| `blueprints/from-server/` | Versions adjusted in the game (design reference). |
 
 ## Installing in the game
 Copy the files into the session's blueprint folder: `…/FactoryGame/Saved/SaveGames/blueprints/<Session>/`
 (dedicated server: in the server directory, with the same file owner as the other game files). The server only reads the folder when
 loading the session — reload the save afterwards. New blueprints appear under "Undefined".
 
-## Railway set (`gen.py` → `blueprints/bahn-set/`)
-The blueprint names are German (`Bahn` = railway). Corridor 24 m wide, symmetrical, everything on asphalt foundations 8x1 (top edge z = 100):
+## Railway set (`gen.py` → `blueprints/rail-set/`)
+Corridor 24 m wide, symmetrical, everything on asphalt foundations 8x1 (top edge z = 100):
 
 | Element | Position (box coordinates, cm) |
 |---|---|
@@ -32,13 +32,13 @@ Because the corridor is symmetrical, every piece can be rotated by 180°; track 
 
 | Blueprint | Boxes | Contents |
 |---|---|---|
-| Bahn 01 Gerade (straight) | 1 | Reference; the version adjusted in the game is in `blueprints/vom-server/` |
-| Bahn 02 Gerade Blocksignale (straight with block signals) | 1 | Block signal per track 4 m behind the entry; use every 2–3 pieces |
-| Bahn 03 Uebergang Kreuzung (junction transition) | 1 | Directly before a junction: path signal (incoming track) + block signal (outgoing track) at the +x end; rotate by 180° for the other side |
-| Bahn 05 Kurve 90 (90° curve) | 4 | 90° curve, center line R 60 m (tracks 52/68 m). Entry "unten links" (bottom left) from −x, exit "oben rechts" (top right) towards +y; "oben links" (top left) only contains the inner edge |
-| Bahn 10 T-Kreuzung (T-junction) | 3 | "oben links" + "oben rechts" (top left + top right) side by side, "unten" (bottom) below (branch 4 m to the right of the seam, align with the foundations). 4 curves R 20 m, 6 switches, tube bridge (7 m) over the curves, the branch tube ends blind. Signals come from "Uebergang Kreuzung" at all three ends |
-| Bahn 20 X-Kreuzung (X-junction) | 1 | Flat crossing without turning, both tubes as bridges (7 m / 8.5 m). "Uebergang Kreuzung" at all four ends |
-| Bahn 30/31 Bahnhof (station) | 1 | Own track (y = 0), direction +x: the train comes from −x through the freight/fluid platform (x −16…0) to the station (x 0…16). Container/pipe side −y. Block signals at both ends. Connect power |
+| Rail 01 Straight | 1 | Reference; the version adjusted in the game is in `blueprints/from-server/` |
+| Rail 02 Straight Block Signals | 1 | Block signal per track 4 m behind the entry; use every 2–3 pieces |
+| Rail 03 Junction Approach | 1 | Directly before a junction: path signal (incoming track) + block signal (outgoing track) at the +x end; rotate by 180° for the other side |
+| Rail 05 Curve 90 | 4 | 90° curve, center line R 60 m (tracks 52/68 m). Entry "Bottom Left" from −x, exit "Top Right" towards +y; "Top Left" only contains the inner edge |
+| Rail 10 T-Junction | 3 | "Top Left" + "Top Right" side by side, "Bottom" below (branch 4 m to the right of the seam, align with the foundations). 4 curves R 20 m, 6 switches, tube bridge (7 m) over the curves, the branch tube ends blind. Signals come from "Junction Approach" at all three ends |
+| Rail 20 X-Crossing | 1 | Flat crossing without turning, both tubes as bridges (7 m / 8.5 m). "Junction Approach" at all four ends |
+| Rail 30 Freight Station / Rail 31 Fluid Station | 1 | Own track (y = 0), direction +x: the train comes from −x through the freight/fluid platform (x −16…0) to the station (x 0…16). Container/pipe side −y. Block signals at both ends. Connect power |
 
 ### Signal and switch logic (derived from the save)
 - The signal actor sits exactly on the track connection point, yaw = direction of travel. `mGuardedConnections` = ends of the tracks behind the signal, `mObservedConnections` = ends in front of it.

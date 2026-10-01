@@ -1,9 +1,9 @@
 <script lang="ts">
-  // Waren-Auswahl mit unscharfer Suche. Gültig ist nur, was aus der Liste gewählt wird — Tippfehler landen nie im Rechner.
+  // Item picker with fuzzy search. Only what is picked from the list is valid — typos never reach the planner.
   //
-  // Die Vorschlagsliste wird an <body> gehängt (Portal) und dort fixed positioniert. Innerhalb von `.panel`
-  // (clip-path für die gestanzte Ecke) oder unter einem Elternteil mit `transform` (Warenfluss-Leiste) würde sie
-  // sonst abgeschnitten — position:fixed allein hilft dort nicht, weil transform einen neuen Bezugsrahmen bildet.
+  // The suggestion list is attached to <body> (portal) and positioned fixed there. Inside `.panel`
+  // (clip-path for the notched corner) or under a parent with `transform` (item flow bar) it would
+  // otherwise be clipped — position:fixed alone doesn't help there, because transform creates a new containing block.
   import { fuzzy } from './fuzzy';
   import { tn, both } from './names';
   import { t, tr } from './i18n';
@@ -25,7 +25,7 @@
     if (!inp) return;
     const r = inp.getBoundingClientRect();
     const below = innerHeight - r.bottom - 8, above = r.top - 8;
-    const up = below < 200 && above > below;                     // am unteren Rand (Handy) nach oben öffnen
+    const up = below < 200 && above > below;                     // near the bottom edge (phone): open upwards
     box = { left: r.left, width: r.width, top: up ? r.top - 2 : r.bottom + 2, up, max: Math.min(320, up ? above : below) };
   }
   $effect(() => {
@@ -36,7 +36,7 @@
     return () => { removeEventListener('resize', f); removeEventListener('scroll', f, true); };
   });
 
-  /** Svelte-Action: Element an <body> umhängen, beim Entfernen wieder löschen. */
+  /** Svelte action: move the element to <body>, remove it again on destroy. */
   function portal(node: HTMLElement) {
     document.body.appendChild(node);
     return { destroy() { node.remove(); } };
@@ -52,7 +52,7 @@
     else if (e.key === 'Escape') { open = false; q = $tn(value); }
   }
   function blur() {
-    // Eingabe ohne Auswahl: bester Treffer übernehmen, sonst alten Wert behalten
+    // input without a selection: take the best match, otherwise keep the old value
     setTimeout(() => {
       if (!open) return;
       open = false;

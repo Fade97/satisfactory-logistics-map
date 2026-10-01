@@ -1,5 +1,5 @@
 // Hash-Router: #/map?x=..&y=..&z=..&sel=kind:key · #/production · #/power · #/logistics · #/history · #/planner · #/kiosk
-// Alte deutsche Adressen (#/karte, ?ware=, ?folge= …) werden auf die englischen umgeschrieben.
+// Old German URLs (#/karte, ?ware=, ?folge= …) are rewritten to the English ones (backwards compatibility).
 import { writable } from 'svelte/store';
 
 export interface Route { page: string; q: URLSearchParams }
@@ -22,11 +22,11 @@ export function go(page: string, q: Record<string, string | number> = {}) {
   const s = new URLSearchParams(Object.entries(q).map(([k, v]) => [k, String(v)])).toString();
   location.hash = '#/' + page + (s ? '?' + s : '');
 }
-/** Karte auf ein Objekt oder einen Ort springen lassen */
+/** Jump the map to an object or a location */
 export const toMap = (sel: string, x?: number, y?: number) =>
   go('map', { sel, ...(x !== undefined ? { x: Math.round(x), y: Math.round(y!), z: 1.5 } : {}) });
 
-/** Adresszeile ohne neuen Verlaufseintrag aktualisieren (Kartenposition). */
+/** Update the address bar without a new history entry (map position). */
 export function replaceQuery(page: string, q: Record<string, string>) {
   const s = new URLSearchParams(q).toString();
   history.replaceState(null, '', '#/' + page + (s ? '?' + s : ''));

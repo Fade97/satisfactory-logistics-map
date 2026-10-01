@@ -17,7 +17,7 @@
 
   onMount(() => {
     start();
-    // Ohne Adresse (reiner Aufruf der Startadresse) die gewählte Startseite öffnen
+    // without a route (plain call of the root URL) open the chosen start page
     if (!location.hash || location.hash === '#' || location.hash === '#/') go(PAGE_ALIAS[$prefs.start] || $prefs.start);
   });
   let showPrefs = $state(false);
@@ -28,7 +28,7 @@
   ];
   let feedOpen = $state(false);
 
-  // Quelle ehrlich anzeigen: live (FRM) oder Stand des letzten Saves
+  // show the data source honestly: live (FRM) or state of the last save
   const src = $derived.by(() => {
     const s = $status;
     if (!$online) return { cls: 'bad', text: tr('offline · last known state') };
@@ -43,7 +43,7 @@
       $status.save_error ? tr('Last fetch failed: {error}', { error: lxr($status.save_error) }) : ''].filter(Boolean).join(' '));
   const title = $derived($status?.title || 'Satisfactory');
   $effect(() => { document.title = title + ' · ' + $t('Logistics Map'); });
-  // Sprache der Oberfläche: erst speichern (prefs schreibt sofort in localStorage), dann neu laden
+  // UI language: save first (prefs writes to localStorage immediately), then reload
   function setUi(v: string) {
     prefs.update(p => ({ ...p, ui: v === 'de' ? 'de' : 'en' }));
     location.reload();

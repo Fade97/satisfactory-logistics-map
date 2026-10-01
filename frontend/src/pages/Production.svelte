@@ -8,7 +8,7 @@
   import { tn, both } from '../lib/names';
   import { t, tr, lx, locale } from '../lib/i18n';
 
-  let view = $state<'bilanz' | 'stehend' | 'fabriken' | 'knoten'>('bilanz');
+  let view = $state<'balance' | 'stalled' | 'factories' | 'nodes'>('balance');
   let q = $state('');
   let sortK = $state<'item' | 'net' | 'prod' | 'cons'>('net');
   let sortDir = $state(1);
@@ -87,14 +87,14 @@
 
   <div class="bar2">
     <div class="seg">
-      {#each [['bilanz', $t('Item balance')], ['stehend', $t('Missing input')], ['fabriken', $t('Factories')], ['knoten', $t('Resource nodes')]] as [k, l]}
+      {#each [['balance', $t('Item balance')], ['stalled', $t('Missing input')], ['factories', $t('Factories')], ['nodes', $t('Resource nodes')]] as [k, l]}
         <button class:on={view === k} onclick={() => (view = k as any)}>{l}</button>
       {/each}
     </div>
     <input class="field srch" type="search" bind:value={q} placeholder={$t('Filter by item or factory, e.g. copper')} />
   </div>
 
-  {#if view === 'bilanz'}
+  {#if view === 'balance'}
     <div class="seg small">
       {#each [['all', $t('All items')], ['starved', $t('Shortages only')], ['surplus', $t('Surplus only')]] as [k, l]}<button class:on={only === k} onclick={() => (only = k as any)}>{l}</button>{/each}
     </div>
@@ -138,7 +138,7 @@
       </table>
     </div>
 
-  {:else if view === 'stehend'}
+  {:else if view === 'stalled'}
     <div class="grid2">
       <div class="panel card"><h2>{$t('Most common reasons')}</h2>
         <label class="tg"><input type="checkbox" bind:checked={showFull} /> {$t('also show machines with full output')}</label>
@@ -167,7 +167,7 @@
       </table>
     </div>
 
-  {:else if view === 'fabriken'}
+  {:else if view === 'factories'}
     <p class="muted">{$t('Machines no more than 60 m apart form a factory; the name comes from its main product. You can rename it on the map in the factory details.')}</p>
     <div class="fgrid">
       {#each facs as x (x.key)}

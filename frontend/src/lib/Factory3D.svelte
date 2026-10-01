@@ -1,6 +1,6 @@
 <script lang="ts">
-  // 3D-Ansicht einer Fabrik: Maschinen als Klötze in echter Größe, Höhe und Drehung, Farbe nach Zustand.
-  // Bänder/Rohre der Fabrik als Linien auf Maschinenhöhe (aus dem Warenfluss). Drehen/Zoomen per OrbitControls.
+  // 3D view of a factory: machines as blocks at real size, height and rotation, coloured by state.
+  // The factory's belts/pipes as lines at machine height (from the item flow). Rotate/zoom via OrbitControls.
   import { onMount, onDestroy } from 'svelte';
   import * as THREE from 'three';
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -11,7 +11,7 @@
 
   let { machines, flow = [], onclose, title = '' }: { machines: Machine[]; flow?: number[][][]; onclose: () => void; title?: string } = $props();
 
-  // Grundfläche B × T × H in Metern (Satisfactory-Wiki, gerundet). Unbekannte: 8 × 8 × 8.
+  // Footprint W × D × H in metres (Satisfactory wiki, rounded). Unknown: 8 × 8 × 8.
   const SIZE: Record<string, [number, number, number]> = {
     Build_SmelterMk1_C: [6, 9, 9], Build_ConstructorMk1_C: [8, 10, 8], Build_AssemblerMk1_C: [10, 15, 11],
     Build_ManufacturerMk1_C: [18, 20, 12], Build_FoundryMk1_C: [10, 9, 9], Build_OilRefinery_C: [10, 20, 31],
@@ -20,7 +20,7 @@
     Build_FrackingExtractor_C: [4, 4, 5], Build_HadronCollider_C: [24, 38, 32], Build_QuantumEncoder_C: [22, 48, 18],
     Build_Converter_C: [16, 16, 16],
   };
-  /** An <body> hängen: die Detailkarte (.panel) hat clip-path — ein fixed-Vollbild darin würde beschnitten. */
+  /** Attach to <body>: the detail card (.panel) has a clip-path — a fixed fullscreen inside it would be clipped. */
   function portal(node: HTMLElement) { document.body.appendChild(node); return { destroy() { node.remove(); } }; }
   let host: HTMLDivElement, tip = $state<{ x: number; y: number; m: Machine } | null>(null);
   let failed = $state('');
@@ -36,21 +36,21 @@
     } catch (e) {
       failed = tr('This device does not provide WebGL ({err}).', { err: (e as Error)?.message || e }); return;
     }
-    // Handy: halbe Pixeldichte reicht für Klötze und spart GPU-Speicher (sonst verliert Safari den Kontext)
+    // Phone: reduced pixel density is enough for blocks and saves GPU memory (otherwise Safari loses the context)
     renderer.setPixelRatio(mobile ? Math.min(1.5, devicePixelRatio) : Math.min(2, devicePixelRatio));
     renderer.domElement.addEventListener('webglcontextlost', ev => { ev.preventDefault(); failed = tr('The device reset the graphics (not enough graphics memory).'); cancelAnimationFrame(raf); });
     host.appendChild(renderer.domElement);
     scene.add(new THREE.HemisphereLight('#e8e6e1', '#2a2620', 1.6));
     const sun = new THREE.DirectionalLight('#ffffff', 1.4); sun.position.set(-300, 600, -200); scene.add(sun);
 
-    // Mittelpunkt und Ausdehnung; Welt: x Ost, y Süd, z oben → three: x, -z(Süd→Norden umkehren), y oben
-    // Mitte = Median, nicht Mittelwert: einzelne weit entfernte Maschinen (Pumpen, Miner) verschieben sonst das Bild
+    // Centre and extent; world: x east, y south, z up → three: x, -z (flip south→north), y up
+    // Centre = median, not mean: single distant machines (pumps, miners) would otherwise shift the view
     const med = (a: number[]) => { const b = [...a].sort((p, q) => p - q); return b[Math.floor(b.length / 2)]; };
     const cx = med(machines.map(m => m.pos[0])), cy = med(machines.map(m => m.pos[1]));
     const zmin = Math.min(...machines.map(m => m.z ?? 0));
     const P = (x: number, y: number, z: number) => new THREE.Vector3(x - cx, z - zmin, y - cy);
 
-    // Maschinen: eine Box-Geometrie je Typ, Instanzen je Zustand-Farbe → wenige Draw Calls
+    // Machines: one box geometry per type, instances coloured by state → few draw calls
     const groups = new Map<string, Machine[]>();
     for (const m of machines) { const k = m.cls; if (!groups.has(k)) groups.set(k, []); groups.get(k)!.push(m); }
     const pickables: { mesh: THREE.InstancedMesh; list: Machine[] }[] = [];
@@ -67,7 +67,7 @@
         mesh.setColorAt(i, col.set(machineColor(m)));
       });
       scene.add(mesh); pickables.push({ mesh, list });
-      // Kanten für Lesbarkeit: alle Maschinen eines Typs in EINER Geometrie (ein Draw Call statt einer je Maschine)
+      // Edges for readability: all machines of a type in ONE geometry (one draw call instead of one per machine)
       const eg = new THREE.EdgesGeometry(geo), ep = eg.getAttribute('position') as THREE.BufferAttribute;
       const all = new Float32Array(ep.count * 3 * list.length), v = new THREE.Vector3();
       list.forEach((_, i) => {
@@ -77,7 +77,7 @@
       const eg2 = new THREE.BufferGeometry(); eg2.setAttribute('position', new THREE.BufferAttribute(all, 3));
       scene.add(new THREE.LineSegments(eg2, new THREE.LineBasicMaterial({ color: '#0c0d0e', transparent: true, opacity: .5 })));
     }
-    // Bänder/Rohre (2D) auf Bodenhöhe der nächsten Maschine
+    // Belts/pipes (2D) at the floor height of the nearest machine
     const nearZ = (x: number, y: number) => {
       let best = 0, bd = 1e9;
       for (const m of machines) { const d = (m.pos[0] - x) ** 2 + (m.pos[1] - y) ** 2; if (d < bd) { bd = d; best = m.z ?? 0; } }
@@ -88,7 +88,7 @@
       const pts = p.map(([x, y]) => P(x, y, nearZ(x, y) + 1));
       scene.add(new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), lineMat));
     }
-    // Boden-Raster
+    // Ground grid
     const xs = machines.map(m => m.pos[0] - cx).sort((a, b) => a - b), ys = machines.map(m => m.pos[1] - cy).sort((a, b) => a - b);
     const qq = (a: number[], f: number) => a[Math.min(a.length - 1, Math.floor(a.length * f))];
     const span = Math.max(60, qq(xs, .95) - qq(xs, .05), qq(ys, .95) - qq(ys, .05));
@@ -97,8 +97,8 @@
 
     const ctl = new OrbitControls(cam, renderer.domElement);
     ctl.target.set((qq(xs, .05) + qq(xs, .95)) / 2, 10, (qq(ys, .05) + qq(ys, .95)) / 2); ctl.enableDamping = true; ctl.maxPolarAngle = Math.PI * .49;
-    // Abstand aus dem Sichtfeld: die Fabrik (span) soll in die SCHMALERE Bildrichtung passen — im Hochformat
-    // ist das die Breite, deren Winkel aus vFOV × Seitenverhältnis folgt
+    // Distance from the field of view: the factory (span) must fit the NARROWER view direction — in portrait
+    // that is the width, whose angle follows from vFOV × aspect ratio
     const frame = () => {
       const vf = THREE.MathUtils.degToRad(cam.fov), hf = 2 * Math.atan(Math.tan(vf / 2) * cam.aspect);
       const dist = (span * 0.75) / Math.tan(Math.min(vf, hf) / 2);
@@ -114,7 +114,7 @@
     };
     ro = new ResizeObserver(resize); ro.observe(host); resize();
 
-    // Tooltip per Raycast
+    // Tooltip via raycast
     const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
     renderer.domElement.addEventListener('pointerup', e => pick(e));
     const pick = (e: PointerEvent) => {

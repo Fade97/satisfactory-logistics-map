@@ -1,19 +1,19 @@
-"""Logistik: Füllstände, Zugdurchsatz und Rundenzeiten, Fahrplan-Prüfung."""
+"""Logistics: fill levels, train throughput and round times, schedule check."""
 import collections, math, time
 
 from .core import ST, DB, paused
 
 
 STACK = {v['name']: (v['stackSize'], v['liquid']) for v in __import__('factory').ITEMS.values()}
-VEH_SLOTS = {'Truck': 48, 'Traktor': 25, 'Explorer': 24}
+VEH_SLOTS = {'Truck': 48, 'Tractor': 25, 'Explorer': 24}     # keys = vehicle type values from stations.py/frm.py
 
 
 def fill_levels(data):
-    """Füllstand je Station (0..1) und theoretischer Durchsatz je Truck-Fahrzeug.
+    """Fill level per station (0..1) and theoretical throughput per truck vehicle.
 
-    Truckstation 48 Slots, Frachtplattform 32 Slots, Flüssigplattform 2400 m³ (Wiki-Werte).
-    Durchsatz = volle Ladung ÷ Rundenzeit — eine Obergrenze, denn wie voll ein Fahrzeug tatsächlich
-    fährt, steht nicht im Save.
+    Truck station 48 slots, freight platform 32 slots, fluid platform 2400 m³ (wiki values).
+    Throughput = full load ÷ round time — an upper bound, since how full a vehicle actually
+    travels is not in the save.
     """
     def cap(items, slots, fluid_cap):
         if not items:
@@ -34,38 +34,38 @@ def fill_levels(data):
             p['fill'] = cap(p['items'], 32, 2400) if p['type'] != 'empty' else None
 
 
-# ---------------------------------------------------------------- Zugdurchsatz
+# ---------------------------------------------------------------- train throughput
 _cargo_prev = {}
 
 
-_round_start = {}          # Zug → (Station beim Rundenbeginn, Zeitpunkt)
+_round_start = {}          # train → (round start time, 'docked' | 'away')
 
 
 def train_rounds(live):
-    """Rundenzeit je Zug messen: Ankunft (angedockt) am ersten Halt des Fahrplans bis zur nächsten Ankunft dort."""
+    """Measure round time per train: arrival (docked) at the first stop of the timetable until the next arrival there."""
     now = time.time()
     for t in live.get('trains', []):
         stops = t.get('stops') or []
         if not stops or not t.get('docked') or t.get('station') != stops[0]:
             continue
         prev = _round_start.get(t['name'])
-        if prev and prev[1] == 'weg':                    # zwischendurch abgefahren → Runde beendet
+        if prev and prev[1] == 'away':                   # left in between → round complete
             dt = now - prev[0]
             if 60 < dt < 4 * 3600:
                 DB.put_series(now, {'round:' + t['name']: dt})
-        if not prev or prev[1] == 'weg':
-            _round_start[t['name']] = (now, 'da')
-    for t in live.get('trains', []):                  # Abfahrt vom ersten Halt merken
+        if not prev or prev[1] == 'away':
+            _round_start[t['name']] = (now, 'docked')
+    for t in live.get('trains', []):                  # note departure from the first stop
         p = _round_start.get(t['name'])
-        if p and p[1] == 'da' and not (t.get('docked') and t.get('station') == (t.get('stops') or [None])[0]):
-            _round_start[t['name']] = (p[0], 'weg')
+        if p and p[1] == 'docked' and not (t.get('docked') and t.get('station') == (t.get('stops') or [None])[0]):
+            _round_start[t['name']] = (p[0], 'away')
 
 
 def train_transfers(live):
-    """Tatsächlich umgeschlagene Ware je Bahnhof: Ladungsänderung eines angedockten Zugs zwischen zwei Abfragen.
+    """Items actually transferred per station: cargo change of a docked train between two polls.
 
-    Zunahme = am Bahnhof beladen, Abnahme = entladen. Summiert als Zeitreihe `train:<Bahnhof>:<+|->:<Ware>`
-    (Menge je Minute) — daraus rechnet die Logistik-Seite den echten Durchsatz der letzten Stunden.
+    Increase = loaded at the station, decrease = unloaded. Summed as time series `train:<station>:<+|->:<item>`
+    (amount per minute) — the logistics page derives the real throughput of the last hours from it.
     """
     if paused():
         return
@@ -84,17 +84,17 @@ def train_transfers(live):
     if add:
         t = now // 60 * 60
         with DB.lock:
-            for k, v in add.items():   # innerhalb der Minute aufsummieren
+            for k, v in add.items():   # accumulate within the minute
                 DB.db.execute('INSERT INTO series_min VALUES (?,?,?) ON CONFLICT(key, t) DO UPDATE SET v = v + excluded.v', (k, t, v))
 
 
-# ---------------------------------------------------------------- Fahrplan-Prüfung
+# ---------------------------------------------------------------- schedule check
 def schedule_check():
-    """Je Zug- und Truck-Route: Kapazität (Ladung je Runde ÷ Rundenzeit) gegen Bedarf der Ware in der Fabrik.
+    """Per train and truck route: capacity (load per round ÷ round time) against the factory's demand for the item.
 
-    Zug: Rundenzeit gemessen (Median der letzten Runden, sonst unbekannt), Ladung = Wagen × 32 Stapel bzw. 1600 m³.
-    Truck: Rundenzeit aus dem Save (AverageTimeBetweenDocks), Ladung = 48 Stapel (Traktor 25).
-    Bedarf = Verbrauch der Ware in der Warenbilanz; Auslastung = gemessener Durchsatz ÷ Kapazität, wo vorhanden.
+    Train: round time measured (median of the last rounds, otherwise unknown), load = wagons × 32 stacks or 1600 m³.
+    Truck: round time from the save (AverageTimeBetweenDocks), load = 48 stacks (tractor 25).
+    Demand = consumption of the item in the item balance; utilisation = measured throughput ÷ capacity, where available.
     """
     import factory as F
     stack = {v['name']: (v['stackSize'], v['liquid']) for v in F.ITEMS.values()}
@@ -103,7 +103,7 @@ def schedule_check():
               for s in (ST.stations or {}).get('trucks', []) + (ST.stations or {}).get('trains', [])}
 
     def demand(item, unload_names, r=250.0):
-        """Bedarf bei Volllast: Soll-Verbrauch der Maschinen im Umkreis der Entladestationen (Fabrik dahinter)."""
+        """Demand at full load: target consumption of machines around the unloading stations (the factory behind them)."""
         pts = [st_pos[n][:2] for n in unload_names if n in st_pos]
         if not pts:
             return None
@@ -123,7 +123,7 @@ def schedule_check():
         items = sorted((t.get('cargo') or {}).items(), key=lambda kv: -kv[1])
         wag = t.get('wagons') or 0
         caps = []
-        # Wagen je Ware aus der Ladung: Menge ÷ Wagenkapazität, aufgerundet; Rest der Wagen gleichmäßig verteilt
+        # wagons per item from the cargo: amount ÷ wagon capacity, rounded up; remaining wagons split evenly
         need_w = {it: max(1, math.ceil(a / (1600 if stack.get(it, (100, False))[1] else 32 * stack.get(it, (100, False))[0]))) for it, a in items}
         spare = max(0, wag - sum(need_w.values()))
         for it, _ in items:
@@ -141,7 +141,8 @@ def schedule_check():
             need = demand(c['item'], unload)
             flows.append(dict(item=c['item'], cap=round(cap, 1) if cap else None, moved=round(moved, 1) if moved else None,
                               need=round(need, 1) if need else None))
-        out.append(dict(kind='zug', name=t['name'], stops=t.get('stops') or [], round=round(rnd) if rnd else None,
+        out.append(dict(kind='train',                   # value matched by the frontend
+                        name=t['name'], stops=t.get('stops') or [], round=round(rnd) if rnd else None,
                         rounds_measured=len(rs), flows=flows, wagons=wag))
     for s in (ST.stations or {}).get('trucks', []):
         for v in s.get('vehicles', []):
@@ -149,7 +150,7 @@ def schedule_check():
                 continue
             it = s['items'][0]['item']
             st, liq = stack.get(it, (100, False))
-            slots = 25 if v['type'] == 'Traktor' else 48
+            slots = 25 if v['type'] == 'Tractor' else 48
             cap = slots * st / (v['round'] / 60)
             partners = [o['name'] for o in (ST.stations or {}).get('trucks', [])
                         if o['mode'] == 'unload' and any(x['id'] == v['id'] for x in o.get('vehicles', []))]
@@ -157,7 +158,7 @@ def schedule_check():
             name = next((x['name'] for x in (ST.live or {}).get('trucks', []) if x.get('id') == v['id']), v['type'] + ' ' + v['id'].split('_')[-1])
             out.append(dict(kind='truck', name=name, stops=[s['name']] + partners, round=v['round'], rounds_measured=None, wagons=None,
                             flows=[dict(item=it, cap=round(cap, 1), moved=None, need=round(need, 1) if need else None)]))
-    # Bewertung: Kapazität < Bedarf → Engpass (sofern die Route die einzige Quelle ist, ist das echt; sonst Hinweis)
+    # verdict: capacity < demand → bottleneck (real if the route is the only source; otherwise a hint)
     for r in out:
         for f in r['flows']:
             f['verdict'] = ('unknown' if not f['cap'] else 'bottleneck' if f['need'] and f['cap'] < f['need'] * .9

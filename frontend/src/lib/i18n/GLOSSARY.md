@@ -1,6 +1,7 @@
-# Glossary (German UI term → English)
+# Glossary (English ↔ German UI terms)
 
-Use these exact English terms everywhere (UI, README, wiki) so the app and the docs match.
+The source code uses the English terms (`$t('Item flow')`); the German column is what `de/*.ts` must use.
+Use the same English terms in README and wiki so the app and the docs match.
 
 ## Pages and routes
 | German | English | Route |

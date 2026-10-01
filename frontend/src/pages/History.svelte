@@ -13,7 +13,7 @@
 
   $effect(() => { localStorage.setItem('fgmap.histItems', JSON.stringify(items)); });
   $effect(() => {
-    // Standard: die vier Waren mit der größten Produktion
+    // default: the four items with the highest production
     if (!items.length && $factory) items = [...$factory.balance].sort((a, b) => b.prod - a.prod).slice(0, 4).map(b => b.item);
   });
   async function load() {

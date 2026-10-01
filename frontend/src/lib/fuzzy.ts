@@ -1,11 +1,11 @@
-// Unscharfe Suche für Waren-/Stationsnamen: verzeiht Tippfehler, Auslassungen und deutsche Begriffe.
+// Fuzzy search for item/station names: tolerates typos, omissions and German terms.
 //
-// Bewertung (höher = besser):
-//   exakter Treffer > Anfang > Wortanfang > Teilstring > Buchstaben in Reihenfolge (Subsequenz)
-//   > Tippfehler (Damerau-Levenshtein je Wort, ≤ 1 Fehler bis 4 Zeichen, ≤ 2 darüber).
-// Deutsche Suchbegriffe werden auf die englischen Spielnamen abgebildet („Eisen“ → Iron, „Kupfer“ → Copper).
+// Scoring (higher = better):
+//   exact match > prefix > word prefix > substring > letters in order (subsequence)
+//   > typos (Damerau-Levenshtein per word, ≤ 1 error up to 4 chars, ≤ 2 above).
+// German search terms are mapped to the English game names ("Eisen" → Iron, "Kupfer" → Copper).
 
-const DE: Record<string, string> = {
+const GERMAN_WORDS: Record<string, string> = {
   eisen: 'iron', kupferdraht: 'wire', kupferkabel: 'cable', kupfer: 'copper', stahl: 'steel', kohle: 'coal', kalk: 'limestone', kalkstein: 'limestone',
   quarz: 'quartz', schwefel: 'sulfur', bauxit: 'bauxite', uran: 'uranium', wasser: 'water', oel: 'oil', öl: 'oil',
   rohoel: 'crude oil', rohöl: 'crude oil', erz: 'ore', barren: 'ingot', platte: 'plate', stange: 'rod', schraube: 'screw',
@@ -18,38 +18,38 @@ const DE: Record<string, string> = {
 };
 
 export function norm(s: string) {
-  // ä→ae usw., damit „Träger“ und „Traeger“ gleich behandelt werden; übrige Akzente entfernen
+  // ä→ae etc., so "Träger" and "Traeger" are treated the same; strip remaining accents
   return s.toLowerCase().replace(/ä/g, 'ae').replace(/ö/g, 'oe').replace(/ü/g, 'ue').replace(/ß/g, 'ss')
     .normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
-// Wörterbuch in derselben Normalform; gängige Endungen (-e, -en, -er, -es …) mit abdecken
-const DEN: Record<string, string> = {};
-for (const [k, v] of Object.entries(DE)) {
-  // „traeger“ und „trager“ (Umlaut ohne e getippt) beide erkennen
+// Dictionary in the same normal form; also covers common endings (-e, -en, -er, -es …)
+const NORM_WORDS: Record<string, string> = {};
+for (const [k, v] of Object.entries(GERMAN_WORDS)) {
+  // recognise both "traeger" and "trager" (umlaut typed without e)
   for (const n of new Set([norm(k), norm(k).replace(/ae/g, 'a').replace(/oe/g, 'o').replace(/ue/g, 'u')])) {
-    DEN[n] ??= v;
-    for (const suf of ['e', 'en', 'er', 'es', 'te', 'ter']) DEN[n + suf] ??= v;
+    NORM_WORDS[n] ??= v;
+    for (const suf of ['e', 'en', 'er', 'es', 'te', 'ter']) NORM_WORDS[n + suf] ??= v;
   }
 }
 
-/** Deutsch → Spielname; Komposita wie „Stahlträger“ oder „Kupferdraht“ werden in bekannte Teile zerlegt. */
+/** German → game name; compounds like "Stahlträger" or "Kupferdraht" are split into known parts. */
 function translate(q: string) {
-  const KEYS = Object.keys(DEN).sort((a, b) => b.length - a.length);
+  const KEYS = Object.keys(NORM_WORDS).sort((a, b) => b.length - a.length);
   const split = (w: string): string[] | null => {
     if (!w) return [];
-    if (DEN[w]) return [DEN[w]];
+    if (NORM_WORDS[w]) return [NORM_WORDS[w]];
     for (const k of KEYS) if (w.startsWith(k) && k.length >= 3) {
-      const rest = split(w.slice(k.length).replace(/^s(?=[a-z]{3})/, ''));   // Fugen-s
-      if (rest) return [DEN[k], ...rest];
+      const rest = split(w.slice(k.length).replace(/^s(?=[a-z]{3})/, ''));   // linking 's' (Fugen-s)
+      if (rest) return [NORM_WORDS[k], ...rest];
     }
-    // Rest mit einem Tippfehler („tager“ → „traeger“): nur für Reste ab 5 Zeichen
-    if (w.length >= 5) for (const k of KEYS) if (k.length >= 5 && dist(w, k, 1) <= 1) return [DEN[k]];
+    // remainder with one typo ("tager" → "traeger"): only for remainders of 5+ chars
+    if (w.length >= 5) for (const k of KEYS) if (k.length >= 5 && dist(w, k, 1) <= 1) return [NORM_WORDS[k]];
     return null;
   };
   return q.split(' ').map(w => (split(w) || [w]).join(' ')).join(' ');
 }
 
-/** Damerau-Levenshtein (optimal string alignment), mit Abbruch über `max`. */
+/** Damerau-Levenshtein (optimal string alignment), bails out above `max`. */
 function dist(a: string, b: string, max: number) {
   if (Math.abs(a.length - b.length) > max) return max + 1;
   const d: number[][] = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
@@ -73,7 +73,7 @@ function subseq(q: string, t: string) {
   return i === q.length;
 }
 
-/** Punktzahl eines Kandidaten für die Anfrage; 0 = kein Treffer. */
+/** Score of a candidate for the query; 0 = no match. */
 export function score(query: string, text: string): number {
   const q0 = norm(query);
   if (!q0) return 1;
@@ -85,7 +85,7 @@ export function score(query: string, text: string): number {
     const words = t.split(' ');
     if (words.some(w => w.startsWith(q))) best = Math.max(best, 800 - t.length);
     if (t.includes(q)) best = Math.max(best, 700 - t.length);
-    // alle Suchwörter kommen (unscharf) vor
+    // all query words occur (fuzzily)
     const qw = q.split(' ');
     let ok = 0, err = 0;
     for (const w of qw) {
@@ -95,20 +95,20 @@ export function score(query: string, text: string): number {
       if (m <= lim) { ok++; err += m; }
     }
     if (ok === qw.length) best = Math.max(best, 600 - err * 60 - t.length);
-    // Buchstaben in Reihenfolge (Kürzel wie „hmf“): nur ab gleichem Anfangsbuchstaben, sonst passt fast alles
+    // letters in order (abbreviations like "hmf"): only with the same first letter, otherwise almost anything matches
     if (q.length >= 3 && q[0] === t[0] && subseq(q.replace(/ /g, ''), t.replace(/ /g, ''))) best = Math.max(best, 300 - t.length);
     if (q.length >= 2 && q.length <= 5 && !q.includes(' ') && words.map(w => w[0]).join('').startsWith(q)) best = Math.max(best, 850);
   }
   return best;
 }
 
-/** Filtert und sortiert eine Liste nach Relevanz. */
+/** Filters and sorts a list by relevance. */
 export function fuzzy<T>(query: string, list: T[], key: (x: T) => string, limit = 50): T[] {
   if (!norm(query)) return list.slice(0, limit);
   return list.map(x => [x, score(query, key(x))] as const).filter(([, s]) => s > 0)
     .sort((a, b) => b[1] - a[1]).slice(0, limit).map(([x]) => x);
 }
 
-/** Passt der Text zur Anfrage? (für Filter über Listen) */
+/** Does the text match the query? (for filtering lists) */
 export const matches = (query: string, ...texts: (string | null | undefined)[]) =>
   !norm(query) || texts.some(t => t && score(query, t) > 0);

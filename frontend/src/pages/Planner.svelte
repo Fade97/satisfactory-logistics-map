@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Produktionsrechner: Ziele → LP im Backend → Flussdiagramm, Bauliste, freie Knoten, als Notiz speichern.
+  // Production planner: targets → LP in the backend → flow diagram, build list, free nodes, save as note.
   import { onMount } from 'svelte';
   import { nodes, factory, status } from '../lib/api';
   import { route, toMap } from '../lib/router';
@@ -20,8 +20,8 @@
   let goal = $state<'raw' | 'machines' | 'power'>(SAVED.goal || 'raw');
   let maxClock = $state<number>(SAVED.maxClock || 100);
   let sloop = $state<boolean>(!!SAVED.sloop);
-  let allow = $state<Record<string, string[]>>(SAVED.allow || {});      // Ware → erlaubte Rezeptklassen
-  let recipeFor = $state<string | null>(null);                          // offene Rezeptwahl
+  let allow = $state<Record<string, string[]>>(SAVED.allow || {});      // item → allowed recipe classes
+  let recipeFor = $state<string | null>(null);                          // open recipe picker
   let res = $state<any>(null), busy = $state(false), err = $state('');
   let site = $state<{ x: number; y: number } | null>(JSON.parse(localStorage.getItem('fgmap.site') || 'null'));
   $effect(() => localStorage.setItem('fgmap.planner', JSON.stringify({ useSurplus, goal, maxClock, sloop, allow })));
@@ -32,7 +32,7 @@
     const q = $route.q;
     const last = JSON.parse(localStorage.getItem('fgmap.plannerTargets') || 'null');
     if (q.get('item')) { targets = [{ item: q.get('item')!, rate: +(q.get('rate') || 10) }]; run(); }
-    else if (last?.length) { targets = last; run(); }                 // zurück von der Karte: letzten Plan wieder zeigen
+    else if (last?.length) { targets = last; run(); }                 // back from the map: show the last plan again
   });
 
   async function run() {
@@ -49,11 +49,11 @@
     } catch (e: any) { err = tr('The planner is not responding: {msg}', { msg: e.message }); } finally { busy = false; }
   }
 
-  // --- Flussdiagramm (Layout in lib/flowlayout.ts) + Hervorhebung der Kette unter dem Mauszeiger
+  // --- Flow diagram (layout in lib/flowlayout.ts) + highlighting of the chain under the pointer
   const graph = $derived(res ? layout(res, fmtNum) : null);
   let hover = $state<FNode | null>(null);
-  let view = $state<'diagramm' | 'baum'>('diagramm');
-  // Alles, was vom überfahrenen Knoten abhängt oder ihn beliefert
+  let view = $state<'diagram' | 'tree'>('diagram');
+  // everything that depends on or supplies the hovered node
   const lit = $derived.by(() => {
     if (!hover || !graph) return null;
     const on = new Set<FNode>([hover]), le = new Set<FEdge>();
@@ -70,7 +70,7 @@
   });
   const EDGE_COL = { raw: '#b07a2a', sur: '#3f8a63', mid: '#8a857c' };
 
-  // --- Baumansicht: vom Ziel rückwärts, jede Ware eingerückt mit Menge und Maschine
+  // --- Tree view: backwards from the target, each item indented with amount and machine
   const tree = $derived.by(() => {
     if (!graph) return [];
     const rows: { depth: number; label: string; sub: string; rate: number; kind: string; again: boolean }[] = [];
@@ -83,7 +83,7 @@
       for (const e of graph.ins.get(n) || []) rec(e.a, depth + 1, e.rate, e.item);
     };
     for (const tn_ of graph.nodes.filter(n => n.kind === 'target')) {
-      if (tn_.data) {                                 // Zielschritt: selbst als Wurzel
+      if (tn_.data) {                                 // target step: itself as the root
         seen.add(tn_);
         rows.push({ depth: 0, label: tn_.label, sub: tn_.sub, rate: tn_.data.out[0]?.rate ?? 0, kind: 'target', again: false });
         for (const e of graph.ins.get(tn_) || []) rec(e.a, 1, e.rate, e.item);
@@ -92,7 +92,7 @@
     return rows;
   });
 
-  // --- Freie Knoten zum Bauplatz
+  // --- Free nodes near the build site
   const nodeHints = $derived.by(() => {
     if (!res || !$nodes) return [];
     const P: Record<string, number> = { pure: 3, normal: 2, impure: 1 };
@@ -181,16 +181,16 @@
 
     <div class="panel card chain">
       <div class="gh"><h2>{$t('Production chain')}</h2>
-        <div class="seg">{#each [['diagramm', $t('Diagram')], ['baum', $t('Tree')]] as [k, l]}<button class:on={view === k} onclick={() => (view = k as any)}>{l}</button>{/each}</div>
+        <div class="seg">{#each [['diagram', $t('Diagram')], ['tree', $t('Tree')]] as [k, l]}<button class:on={view === k} onclick={() => (view = k as any)}>{l}</button>{/each}</div>
       </div>
-      {#if graph && view === 'diagramm'}
+      {#if graph && view === 'diagram'}
         <div class="flow">
           <svg width={graph.width + 4} height={graph.height + 4} class:dim={!!lit} role="img" aria-label={$t('Production chain')}>
             {#each graph.edges as e (e.id)}
               <path d={edgePath(e)} class="edge" class:on={lit?.le.has(e)} stroke={EDGE_COL[e.kind]} stroke-width={e.w}><title>{$tn(e.item)}: {fmtNum(e.rate)}/min</title></path>
             {/each}
             {#each graph.edges as e (e.id + 'l')}
-              <!-- Beschriftung am Ende der Kante, auf den Spaltenabstand gekürzt (sonst ragt sie in den Kasten davor) -->
+              <!-- label at the end of the edge, truncated to the column gap (otherwise it overlaps the box before it) -->
               {@const lbl = fmtNum(e.rate) + ' ' + $tn(e.item)}
               {#if e.label || lit?.le.has(e)}
               <text x={e.b.x - 6} y={e.y2 - 4} class="el" class:on={lit?.le.has(e)} text-anchor="end">{lbl.length > LABEL_CHARS ? lbl.slice(0, LABEL_CHARS - 1) + '…' : lbl}<title>{$tn(e.item)}: {fmtNum(e.rate)}/min</title></text>
@@ -240,7 +240,7 @@
                             onchange={e => {
                               const cur = new Set(allow[it] || altFor(it).map(x => x.cls));
                               (e.target as HTMLInputElement).checked ? cur.add(r.cls) : cur.delete(r.cls);
-                              if (!cur.size) { (e.target as HTMLInputElement).checked = true; return; }   // mindestens eins
+                              if (!cur.size) { (e.target as HTMLInputElement).checked = true; return; }   // at least one
                               allow = { ...allow, [it]: [...cur] }; if (cur.size === altFor(it).length) { const a = { ...allow }; delete a[it]; allow = a; }
                               run();
                             }} /> {$tn(r.name)}{r.alt ? ' (' + $t('alt.') + ')' : ''}{r.cls === s.cls ? ' · ' + $t('in use') : ''}</label>

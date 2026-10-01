@@ -160,7 +160,7 @@ class H(http.server.BaseHTTPRequestHandler):
                         s['bp'] = bpgen.supported(s['cls'])
                 return self._json(r)
             if p == '/api/blueprint':
-                # Blueprint zu einem Rechner-Schritt erzeugen und als ZIP (.sbp + .sbpcfg) ausliefern
+                # generate a blueprint for a planner step and serve it as a ZIP (.sbp + .sbpcfg)
                 import bpgen, io, zipfile
                 b = self._body()
                 st = dict(cls=str(b.get('cls')), building=str(b.get('building') or ''), machines=float(b.get('machines') or 0),
@@ -200,17 +200,17 @@ class H(http.server.BaseHTTPRequestHandler):
         rel = urllib.parse.unquote(p).lstrip('/') or 'index.html'
         f = os.path.realpath(os.path.join(root, rel))
         if not f.startswith(os.path.realpath(root) + os.sep) or not os.path.isfile(f):
-            # Fehlende Build-Dateien (/assets/…, alte Hashes aus einem veralteten Cache) ehrlich mit 404 beantworten —
-            # sonst lädt der Browser index.html als JavaScript und ein nachgeladener Baustein scheitert still
+            # answer missing build files (/assets/…, old hashes from a stale cache) with a real 404 —
+            # otherwise the browser loads index.html as JavaScript and a lazily loaded chunk fails silently
             if rel.startswith('assets/') or os.path.splitext(rel)[1] in ('.js', '.css', '.map', '.png', '.jpg', '.svg', '.woff2'):
                 return self._send(404, b'not found', 'text/plain', {'Cache-Control': 'no-store'})
-            f = os.path.join(root, 'index.html')                 # SPA: unbekannte Pfade → App
+            f = os.path.join(root, 'index.html')                 # SPA: unknown paths → app
         ext = os.path.splitext(f)[1]
         st = os.stat(f)
         tag = '"%x-%x"' % (st.st_size, int(st.st_mtime))
         if self.headers.get('If-None-Match') == tag:
             return self._send(304, extra={'ETag': tag})
-        immutable = '/assets/' in f                # Vite-Dateien tragen einen Hash im Namen
+        immutable = '/assets/' in f                # Vite files carry a hash in their name
         body = open(f, 'rb').read()
         extra = {'ETag': tag, 'Cache-Control': 'public, max-age=31536000, immutable' if immutable else 'no-cache'}
         if ext in ('.js', '.css', '.html', '.json', '.svg') and 'gzip' in (self.headers.get('Accept-Encoding') or ''):

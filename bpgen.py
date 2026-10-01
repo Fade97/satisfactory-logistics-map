@@ -1,14 +1,14 @@
-"""Blueprints aus dem Rechner: je Rezeptschritt ein Blueprint mit N Maschinen, Rezept und Takt gesetzt.
+"""Blueprints from the production planner: one blueprint per recipe step with N machines, recipe and clock set.
 
-Ansatz: nichts neu verdrahten. Vorlage ist ein vollständiges, im Spiel bewährtes Spieler-Blueprint
-(gamedata/templates/*.sbp) mit K Maschinen in Zeilen zu je zwei:
-    Splitter ─ Maschine ─ Merger ─ Maschine ─ Splitter
-Braucht der Plan n ≤ K Maschinen, werden überzählige Maschinen entfernt (von hinten, Zeile für Zeile).
-Ihre Zuleitungsbänder bleiben liegen und enden offen — das Spiel verteilt dann eben weniger.
-Allen übrigen Maschinen wird das Rezept gesetzt; volle Maschinen laufen auf `full_clock`, die letzte auf `clock`.
+Approach: rewire nothing. The template is a complete player blueprint proven in the game
+(gamedata/templates/*.sbp) with K machines in rows of two:
+    splitter ─ machine ─ merger ─ machine ─ splitter
+If the plan needs n ≤ K machines, the surplus machines are removed (from the back, row by row).
+Their feeder belts stay in place and end open — the game simply distributes less.
+All remaining machines get the recipe; full machines run at `full_clock`, the last one at `clock`.
 
-Nur Constructor und Smelter (je ein Ein- und Ausgang). Alles andere lehnt der Generator ab.
-Status: EXPERIMENTELL — nicht im Spiel geprüft. Ausgabe in out/rechner/, nicht automatisch auf den Server.
+Constructor and Smelter only (one input and one output each). The generator rejects everything else.
+Status: EXPERIMENTAL — not tested in the game. Output goes to OUT (data/blueprints/), not to the server automatically.
 """
 import copy, json, math, os, re
 import sbp, gen
@@ -31,7 +31,7 @@ def supported(recipe_cls):
 
 
 def build(step):
-    """step = Rechner-Schritt (cls, building, machines, full_clock, clock). Liefert (Pfad, Info)."""
+    """step = planner step (cls, building, machines, full_clock, clock). Returns (path, info)."""
     import planner
     recipe = step['cls']
     R = planner.RECIPES[recipe]
@@ -43,7 +43,7 @@ def build(step):
     tpl = os.path.join(HERE, 'gamedata', 'templates', TEMPLATES[bcls] + '.sbp')
     H, B = sbp.load(tpl)
     machines = [h for h in B['headers'] if h['type'] == 1 and h['cls'].endswith(bcls)]
-    # Reihenfolge: Zeile für Zeile (y), in der Zeile links nach rechts — entfernt wird von hinten
+    # order: row by row (y), left to right within a row — removal starts from the back
     machines.sort(key=lambda h: (round(h['pos'][1]), h['pos'][0]))
     n = math.ceil(step['machines'] - 1e-6)
     if n > len(machines):
@@ -51,10 +51,10 @@ def build(step):
                       % (n, len(machines), len(machines)))
     drop = {h['name'] for h in machines[n:]}
     keep = [h['name'] for h in machines[:n]]
-    # Objekte der entfernten Maschinen (Actor + Komponenten) weglassen, Verweise darauf lösen
+    # drop the objects of removed machines (actor + components), clear references to them
     gone = lambda path: any(path.startswith(d + '.') or path == d for d in drop)
-    # Stromleitungen führen ihre beiden Endpunkte im Rohtrail (nicht als Property): Leitungen zu einer
-    # entfernten Maschine mit entfernen, sonst hängt ein halbes Kabel im Blueprint
+    # Power lines keep their two endpoints in the raw trail (not as a property): remove lines to a
+    # removed machine as well, otherwise half a cable is left dangling in the blueprint
     for h, o in zip(B['headers'], B['objs']):
         if h['type'] == 1 and h['cls'].endswith('Build_PowerLine_C') and o['obj']:
             t = o['obj']['trail']
@@ -70,7 +70,7 @@ def build(step):
         for p in (o['obj'] or {}).get('props', []):
             if p['name'] == 'mConnectedComponent' and p['value'][1] and gone(p['value'][1]):
                 p['value'] = ['', '']
-            if p['name'] == 'mWires':                       # Stromkabel zur entfernten Maschine
+            if p['name'] == 'mWires':                       # power cable to the removed machine
                 p['value'] = [w for w in p['value'] if not gone(w[1])]
     clock_full = step['full_clock'] / 100.0
     clock_last = (step['clock'] / 100.0) if step.get('clock') else clock_full
@@ -78,19 +78,19 @@ def build(step):
         if h['type'] == 1 and h['name'] in keep:
             _set_machine(o['obj'], RPATH[recipe], clock_last if h['name'] == keep[-1] else clock_full)
     H2 = dict(H)
-    H2['recipes'] = [r for r in H['recipes']]            # Gebäuderezepte der Vorlage bleiben gültig
+    H2['recipes'] = [r for r in H['recipes']]            # the template's building recipes stay valid
     os.makedirs(OUT, exist_ok=True)
     label = '%s %dx%s' % (R['name'], n, (' %d%%' % step['full_clock']) if step['full_clock'] != 100 else '')
-    fn = re.sub(r'[^\w äöüÄÖÜß.,%+-]', '', label).strip()[:60]
+    fn = re.sub(r'[^\w .,%+-]', '', label).strip()[:60]
     path = os.path.join(OUT, fn + '.sbp')
     sbp.save(path, H2, dict(B, headers=hs, objs=os_))
-    gen.write_cfg(path + 'cfg', 'Rechner: %s, %d Maschinen. Experimentell — erst testen.' % (R['name'], n), src=tpl + 'cfg')
-    # Gegenprobe: neu einlesen, alles muss sich parsen und byte-genau zurückschreiben lassen
+    gen.write_cfg(path + 'cfg', 'Planner: %s, %d machines. Experimental — test before use.' % (R['name'], n), src=tpl + 'cfg')
+    # cross-check: re-read; everything must parse and write back byte-exactly
     H3, B3 = sbp.load(path)
     bad = sum(1 for o in B3['objs'] if o.get('obj') is None)
     if bad:
         raise BpError('Generated blueprint has %d unreadable objects' % bad)
-    # kein Objekt darf mehr auf etwas Entferntes zeigen (Properties und Rohtrails, byte-genau geprüft)
+    # no object may still point at something removed (properties and raw trails, checked byte-exactly)
     for o in B3['objs']:
         if any(d.encode() + b'.' in o['data'] or d.encode() + b'\x00' in o['data'] for d in drop):
             raise BpError('Reference to a removed object left — blueprint discarded')
@@ -115,4 +115,4 @@ if __name__ == '__main__':
         try:
             print(build(s))
         except BpError as e:
-            print('übersprungen:', e)
+            print('skipped:', e)

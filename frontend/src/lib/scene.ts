@@ -1,10 +1,10 @@
-// Baut aus den Stores die Kartenobjekte (MapObj/Lines) — getrennt von der Seite, damit Kiosk sie mitnutzt.
+// Builds map objects (MapObj/lines) from the stores — separate from the page so the kiosk can reuse them.
 import type { MapView, MapObj } from './mapview';
 import type { Stations, Live, Factory, Geo, Node, Pin } from './types';
 import { C, machineColor } from './fmt';
 import { tr, lxr } from './i18n';
 
-// Anzeigenamen per tr(): ein Sprachwechsel lädt die Seite neu, daher reicht die Übersetzung beim Laden
+// Display names via tr(): changing the language reloads the page, so translating at load time is enough
 export const LAYERS: [string, string, boolean][] = [
   ['mapimg', tr('Game map'), true], ['detail', tr('Foundations & walls (when zoomed in)'), true], ['rails', tr('Rail network'), true], ['pipes', tr('Pipes'), false],
   ['belts', tr('Conveyor belts'), false], ['power', tr('Power lines'), false],
@@ -55,7 +55,7 @@ export function factoryObjs(f: Factory): MapObj[] {
   const out: MapObj[] = [];
   for (const m of f.machines) {
     const starved = m.state === 'stopped' && m.block !== 'full';
-    if (m.nopower) {                                  // eigene, standardmäßig sichtbare Ebene: sofort auffällig
+    if (m.nopower) {                                  // own layer, visible by default: stands out immediately
       out.push({ kind: 'machine', key: 'machine:' + m.id, x: m.pos[0], y: m.pos[1], z: m.z, r: 4.5, shape: 'diamond',
         color: '#e5484d', ring: '#f5f2ea', label: tr('{name} without power', { name: m.name }), prio: 3, layer: 'nopower', data: m });
       continue;
@@ -103,7 +103,7 @@ export function applyGeo(v: MapView, g: Geo | null, lines: number[][] | null, st
     v.lines.push({ key: 'pipes', layer: 'pipes', color: '#5b9bd5', width: 1.4, alpha: .75, paths: g.pipes });
     v.lines.push({ key: 'rails', layer: 'rails', color: '#cfcac0', width: 1.6, alpha: .8, paths: g.rails });
   }
-  if (st) {                          // Zugrouten als Luftlinie zwischen den Halten
+  if (st) {                          // train routes as straight lines between stops
     const byIdent: Record<string, number[]> = {};
     st.trains.forEach(s => (byIdent[s.ident!] = [s.pos[0] / 100, s.pos[1] / 100]));
     const paths = st.routes.map(r => r.stops.map(s => byIdent[s.ident]).filter(Boolean)).filter(p => p.length > 1).map(p => [...p, p[0]]);
@@ -113,7 +113,7 @@ export function applyGeo(v: MapView, g: Geo | null, lines: number[][] | null, st
     color: s => s[4] == null ? '#6f6b64' : CIRCUIT_COLORS[Math.abs(s[4]) % CIRCUIT_COLORS.length] }] : [];
 }
 
-/** Fabrik-Umriss: grün = läuft, gelb = teils Mangel, rot = viel Mangel; volle Ausgänge zählen nicht als Problem. */
+/** Factory outline: green = running, yellow = some starvation, red = heavy starvation; full outputs don't count as a problem. */
 export function factoryColor(f: { n: number; starved: number; states: Record<string, number> }) {
   const bad = f.starved / Math.max(1, f.n), run = ((f.states['running'] || 0) + (f.states['partial'] || 0)) / Math.max(1, f.n);
   return bad > .3 ? '#e5484d' : bad > .08 ? '#e2b93b' : run > .2 ? '#4cc38a' : '#8a857c';

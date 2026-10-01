@@ -1,6 +1,6 @@
-// Rauchtest aller Seiten gegen eine laufende Instanz: keine JS-Fehler, Kernelemente da.
+// Smoke test of all pages against a running instance: no JS errors, core elements present.
 //   node frontend/tests/smoke.mjs [http://127.0.0.1:8050]
-// Browser: Playwright-Chromium aus ~/.cache/ms-playwright (kein Download).
+// Browser: Playwright Chromium from ~/.cache/ms-playwright (no download).
 import { chromium, devices } from 'playwright-core';
 import { readdirSync } from 'node:fs';
 
@@ -11,10 +11,10 @@ const b = await chromium.launch({ executablePath: `${cache}/${dir}/chrome-linux6
 const CHECKS = [
   ['overview', '.kpi'], ['map', 'canvas'], ['production', 'table.t'], ['power', '.net'], ['logistics', 'table.t'],
   ['history', 'svg, .empty'], ['planner?item=Iron%20Plate&rate=60', '.node'], ['map?item=Iron%20Ore', '.flowbar'], ['kiosk', 'aside'],
-  ['karte?ware=Iron%20Ore', '.flowbar'],   // alte deutsche Adresse muss weiter funktionieren
+  ['karte?ware=Iron%20Ore', '.flowbar'],   // old German URL must keep working
 ];
 let fail = 0;
-for (const [devName, dev] of [['desktop', { viewport: { width: 1400, height: 900 } }], ['handy', devices['Pixel 7']]]) {
+for (const [devName, dev] of [['desktop', { viewport: { width: 1400, height: 900 } }], ['phone', devices['Pixel 7']]]) {
   const ctx = await b.newContext(dev);
   const p = await ctx.newPage();
   const errs = [];
@@ -26,12 +26,12 @@ for (const [devName, dev] of [['desktop', { viewport: { width: 1400, height: 900
     const ok = await p.waitForSelector(sel, { timeout: 8000 }).then(() => true, () => false);
     if (!ok) await p.screenshot({ path: `/tmp/smoke-${devName}-${page.split('?')[0]}.png` }).catch(() => {});
     const at = ok ? '' : await p.evaluate(() => location.hash);
-    // Karte nach Seitenwechsel wieder da? (Fehler vom 30.09.)
+    // Map back after a page switch? (bug from 09-30)
     if (page === 'production') { await p.goto(`${base}/#/map`); await p.waitForTimeout(1200); }
     const w = await p.evaluate(() => innerWidth);
-    const bad = !ok || errs.length || (devName === 'handy' && w > 420);
+    const bad = !ok || errs.length || (devName === 'phone' && w > 420);
     if (bad) fail++;
-    console.log(`${bad ? 'FEHLER' : 'ok    '} ${devName.padEnd(7)} #/${page}${!ok ? ' — ' + sel + ' fehlt (Adresse ' + at + ', Bild /tmp/smoke-' + devName + '-' + page.split('?')[0] + '.png)' : ''}${errs.length ? ' — ' + errs[0] : ''}${w > 420 && devName === 'handy' ? ' — Seite breiter als Handy (' + w + ')' : ''}`);
+    console.log(`${bad ? 'FAIL  ' : 'ok    '} ${devName.padEnd(7)} #/${page}${!ok ? ' — ' + sel + ' missing (URL ' + at + ', screenshot /tmp/smoke-' + devName + '-' + page.split('?')[0] + '.png)' : ''}${errs.length ? ' — ' + errs[0] : ''}${w > 420 && devName === 'phone' ? ' — page wider than phone (' + w + ')' : ''}`);
   }
   await ctx.close();
 }

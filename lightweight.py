@@ -1,12 +1,12 @@
-"""Leichtbau-Objekte aus dem Save: Fundamente, Wände, Rampen, Träger … (FGLightweightBuildableSubsystem).
+"""Lightweight buildables from the save: foundations, walls, ramps, beams … (FGLightweightBuildableSubsystem).
 
-Das Spiel speichert sie nicht als Actors, sondern als Liste je Klasse im Rohtrail des Subsystems:
-  int32 0, int32 Version, int32 Anzahl Klassen, je Klasse: int32 0, string Klasse, int32 n,
-  n × { double[4] Quaternion, double[3] Position (cm), double[3] Skalierung,
-        Objektref Swatch, Material, Pattern, Skin, float[4] Primär, float[4] Sekundär, Objektref PaintFinish,
-        uint8 PatternRotation, Objektref Rezept, Objektref BlueprintProxy,
-        v≥2: int32 Datenflag [+ int32 0, string Typ, int32 Größe, Properties], v≥3: uint8 ServiceProvider, int32 Spielerindex }
-Aufbau nach dem Format, das auch sat_sav_parse liest; eigene Umsetzung.
+The game does not store them as actors but as one list per class in the subsystem's raw trail:
+  int32 0, int32 version, int32 class count, per class: int32 0, string class, int32 n,
+  n × { double[4] quaternion, double[3] position (cm), double[3] scale,
+        objref swatch, material, pattern, skin, float[4] primary, float[4] secondary, objref PaintFinish,
+        uint8 PatternRotation, objref recipe, objref BlueprintProxy,
+        v≥2: int32 data flag [+ int32 0, string type, int32 size, properties], v≥3: uint8 ServiceProvider, int32 player index }
+Layout follows the format that sat_sav_parse reads as well; independent implementation.
 """
 import math, struct
 import sbp, sav
@@ -17,14 +17,14 @@ def _ref(r):
 
 
 def parse(S):
-    """Liefert [(klasse, [(x, y, z, yaw_grad), …]), …]; Positionen in cm."""
+    """Returns [(class, [(x, y, z, yaw_deg), …]), …]; positions in cm."""
     n = next((k for k in S.idx if k.endswith('.LightweightBuildableSubsystem')), None)
     if not n:
         return []
     t = sav.obj(S.idx, n)[1]['trail']
     r = sbp.R(t)
     first = r.i32()
-    ver = r.i32() if first == 0 else first           # je nach Save steht vorne noch ein Null-Wort
+    ver = r.i32() if first == 0 else first           # depending on the save there is an extra zero word in front
     ncls = r.i32()
     out = []
     for _ in range(ncls):
@@ -33,10 +33,10 @@ def parse(S):
         for _ in range(cnt):
             qx, qy, qz, qw = struct.unpack_from('<4d', t, r.p); r.p += 32
             x, y, z = struct.unpack_from('<3d', t, r.p); r.p += 24
-            r.p += 24                                  # Skalierung
-            _ref(r); _ref(r); _ref(r); _ref(r)         # Swatch, Material, Pattern, Skin
-            r.p += 32                                  # Farben
-            _ref(r); r.u8(); _ref(r); _ref(r)          # PaintFinish, PatternRotation, Rezept, BlueprintProxy
+            r.p += 24                                  # scale
+            _ref(r); _ref(r); _ref(r); _ref(r)         # swatch, material, pattern, skin
+            r.p += 32                                  # colours
+            _ref(r); r.u8(); _ref(r); _ref(r)          # PaintFinish, PatternRotation, recipe, BlueprintProxy
             if ver >= 2:
                 if r.i32():
                     r.i32(); r.s(); size = r.i32(); r.p += size
@@ -52,7 +52,7 @@ if __name__ == '__main__':
     import sys, factory, collections
     S = factory.Save(sys.argv[1] if len(sys.argv) > 1 else 'saves/latest.sav')
     res = parse(S)
-    print(sum(len(i) for _, i in res), 'Objekte in', len(res), 'Klassen')
+    print(sum(len(i) for _, i in res), 'objects in', len(res), 'classes')
     for c, i in sorted(res, key=lambda x: -len(x[1]))[:15]:
         print('%6d %s' % (len(i), c))
 
@@ -61,10 +61,10 @@ MATERIAL = [('Asphalt', 1), ('Concrete', 2), ('Polished', 2), ('Metal', 3), ('Gl
 
 
 def detail(S):
-    """Kompakte Detailebene für die Karte (Meter, ganzzahlig):
-      tiles: [x, y, yaw/90-Stufe, material, stockwerk-z] je Fundament/Dach — Größe 8 × 8 m
-      walls: [x1, y1, x2, y2, z] je Wand/Geländer (8 m bzw. 4 m breit, entlang der Drehung)
-    Fundamente stapeln sich (8x1 übereinander): je Rasterzelle und Höhe nur eines behalten."""
+    """Compact detail layer for the map (metres, integers):
+      tiles: [x, y, yaw/90 step, material, floor z] per foundation/roof — size 8 × 8 m
+      walls: [x1, y1, x2, y2, z] per wall/railing (8 m or 4 m wide, along the rotation)
+    Foundations stack (8x1 on top of each other): keep only one per grid cell and height."""
     tiles, walls, seen = [], [], set()
     for cls, items in parse(S):
         is_found = any(k in cls for k in ('Foundation', 'Ramp', 'Roof', 'QuarterPipe'))
@@ -81,7 +81,7 @@ def detail(S):
                 seen.add(key)
                 tiles.append([round(x / 100), round(y / 100), round(((yaw % 360) / 90)) % 4, mat, round(z / 100)])
             else:
-                # Wände/Geländer erstrecken sich entlang der lokalen Y-Achse (Yaw 0 = Nord-Süd-Flucht)
+                # walls/railings extend along the local Y axis (yaw 0 = north-south line)
                 a = math.radians(yaw + 90)
                 dx, dy = math.cos(a) * width / 2, math.sin(a) * width / 2
                 walls.append([round((x - dx) / 100, 1), round((y - dy) / 100, 1), round((x + dx) / 100, 1), round((y + dy) / 100, 1), round(z / 100)])
@@ -89,10 +89,10 @@ def detail(S):
 
 
 def detail_binary(S):
-    """Detailebene als Int16-Binärpaket (Little Endian), für die Karte ~4× kleiner als JSON:
-      Kopf: int32 n_tiles, int32 n_walls
-      Tiles: n × [x, y, z] (m) + n × uint8 (rot 2 Bit | material << 2)
-      Walls: n × [x1, y1, x2, y2, z] (dm-genau für x/y: Wert / 2 = m, damit 4-m-Wände nicht springen → halbe Meter)
+    """Detail layer as an int16 binary packet (little endian), ~4× smaller than JSON for the map:
+      header: int32 n_tiles, int32 n_walls
+      tiles: n × [x, y, z] (m) + n × uint8 (rot 2 bits | material << 2)
+      walls: n × [x1, y1, x2, y2, z] (x/y in half metres: value / 2 = m, so 4 m walls do not jump)
     """
     import struct
     d = detail(S)
@@ -102,6 +102,6 @@ def detail_binary(S):
     out += struct.pack('<%dh' % (3 * len(T)), *[clamp(v) for t in T for v in (t[0], t[1], t[4])])
     out += bytes((t[2] & 3) | (t[3] << 2) for t in T)
     if len(T) % 2:
-        out += b'\0'                                  # Ausrichtung auf 2 Byte für die Int16-Ansicht
+        out += b'\0'                                  # align to 2 bytes for the int16 view
     out += struct.pack('<%dh' % (5 * len(W)), *[clamp(v) for w in W for v in (w[0] * 2, w[1] * 2, w[2] * 2, w[3] * 2, w[4])])
     return bytes(out)

@@ -1,12 +1,12 @@
-"""Produktionsrechner: „Ich will X/min von Y“ → Rezeptkette, Maschinen, Strom, Rohstoffe.
+"""Production planner: "I want X/min of Y" → recipe chain, machines, power, raw resources.
 
-Lineares Programm (scipy HiGHS), wie die bekannten Community-Planer:
-  Variablen   x_r ≥ 0   Rezeptläufe je Minute (Rezept r läuft x_r-mal pro Minute)
-              s_i ≥ 0   Rohstoff i aus Knoten (Extraktion, /min)
-              u_i ≥ 0   genutzter Überschuss der bestehenden Fabrik (/min, gedeckelt)
-  Bilanz je Ware:   Σ_r (out_ri − in_ri)·x_r + s_i + u_i ≥ Ziel_i   (Nebenprodukte dürfen übrig bleiben)
-  Ziel:       min Σ s_i · Gewicht_i + ε·Σ Maschinen   — Gewicht = Knappheit auf der Karte
-Nur freigeschaltete Rezepte (aus dem Save), einzelne abwählbar.
+Linear program (scipy HiGHS), like the well-known community planners:
+  variables   x_r ≥ 0   recipe runs per minute (recipe r runs x_r times per minute)
+              s_i ≥ 0   raw resource i from nodes (extraction, /min)
+              u_i ≥ 0   used surplus of the existing factory (/min, capped)
+  balance per item:   Σ_r (out_ri − in_ri)·x_r + s_i + u_i ≥ target_i   (byproducts may be left over)
+  objective:  min Σ s_i · weight_i + ε·Σ machines   — weight = scarcity on the map
+Only unlocked recipes (from the save); individual recipes can be excluded.
 """
 import collections, math
 import numpy as np
@@ -17,7 +17,7 @@ import factory
 GD = factory.GD
 ITEMS, RECIPES, BUILDINGS = GD['items'], GD['recipes'], GD['buildings']
 
-# Weltvorrat je Rohstoff (/min, Standardwerte der Community-Planer) → seltene Rohstoffe teurer gewichten
+# world supply per raw resource (/min, default values of the community planners) → weight rare resources higher
 WORLD = {'Desc_OreIron_C': 92100, 'Desc_OreCopper_C': 36900, 'Desc_Stone_C': 69300, 'Desc_Coal_C': 42300,
          'Desc_OreGold_C': 15000, 'Desc_LiquidOil_C': 12600, 'Desc_RawQuartz_C': 13500, 'Desc_Sulfur_C': 10800,
          'Desc_OreBauxite_C': 12300, 'Desc_OreUranium_C': 2100, 'Desc_NitrogenGas_C': 12000, 'Desc_SAM_C': 10200,
@@ -26,11 +26,11 @@ RAW = set(WORLD)
 
 
 def unlocked(S):
-    """Klassennamen der freigeschalteten Maschinenrezepte (Standard + Alternativ) laut Save.
+    """Class names of the unlocked machine recipes (standard + alternate) according to the save.
 
-    Grundrezepte (Iron Ingot, Iron Plate, Residual Plastic …) hängen an keinem Meilenstein im Datensatz —
-    sie gehören zum Start bzw. entstehen als Nebenprodukt-Rezept. Deshalb: alle Nicht-Alternativrezepte ohne
-    freischaltendes Schematic plus alles, was im Save gerade in einer Maschine eingestellt ist.
+    Basic recipes (Iron Ingot, Iron Plate, Residual Plastic …) are not tied to any milestone in the dataset —
+    they are available from the start or come as byproduct recipes. Hence: all non-alternate recipes without
+    an unlocking schematic, plus everything currently set in a machine in the save.
     """
     sm = S.props(S.by['BP_SchematicManager_C'][0]) if S.by['BP_SchematicManager_C'] else {}
     granted = {r for sc in GD['schematics'].values() for r in sc['unlock'].get('recipes', [])}
@@ -49,7 +49,7 @@ def unlocked(S):
 
 
 def recipe_list(rec):
-    """Für die Website: produzierbare Waren und die freigeschalteten Rezepte je Ware."""
+    """For the website: producible items and the unlocked recipes per item."""
     items = collections.defaultdict(list)
     for r in rec:
         R = RECIPES[r]
@@ -69,26 +69,26 @@ def item_key(name_or_key):
 
 
 def _power(meta, clock):
-    """MW einer Maschine bei Taktrate clock (1.0 = 100 %), Exponent aus den Spieldaten (1,32)."""
+    """MW of a machine at clock speed clock (1.0 = 100 %), exponent from the game data (1.32)."""
     return meta.get('powerConsumption', 0) * clock ** meta.get('powerConsumptionExponent', 1.321929)
 
 
 def solve(targets, recipes, surplus=None, exclude=(), goal='raw', max_clock=1.0, sloop=False):
-    """targets: {item_key: rate/min}; recipes: erlaubte Rezeptklassen; surplus: {item_key: verfügbare Rate}.
+    """targets: {item_key: rate/min}; recipes: allowed recipe classes; surplus: {item_key: available rate}.
 
-    goal:      'raw' wenig Rohstoffe (nach Knappheit gewichtet) · 'machines' wenig Maschinen · 'power' wenig Strom
-    max_clock: höchste Taktrate je Maschine (1,0 … 2,5 mit Power Shards) — weniger Maschinen, mehr Strom je Stück
-    sloop:     Somersloops in allen Maschinen: doppelte Ausgabe bei gleichem Input, Strom ×4 (Spielwerte 1.0)
+    goal:      'raw' few raw resources (weighted by scarcity) · 'machines' few machines · 'power' little power
+    max_clock: highest clock speed per machine (1.0 … 2.5 with Power Shards) — fewer machines, more power each
+    sloop:     Somersloops in all machines: double output for the same input, power ×4 (game values 1.0)
     """
     rs = [r for r in sorted(recipes) if r not in exclude and not RECIPES[r].get('forBuilding')]
-    rs = [r for r in rs if 'Desc_' + 'Converter' not in RECIPES[r]['producedIn'][0]]   # Konverter-Kreisläufe meiden
+    rs = [r for r in rs if 'Desc_' + 'Converter' not in RECIPES[r]['producedIn'][0]]   # avoid converter loops
     items = sorted({x['item'] for r in rs for x in RECIPES[r]['ingredients'] + RECIPES[r]['products']} | set(targets))
     ix = {k: i for i, k in enumerate(items)}
     raw = [k for k in items if k in RAW]
     sur = [k for k in items if surplus and surplus.get(k, 0) > 0.01]
     n_r, n_s, n_u = len(rs), len(raw), len(sur)
     boost = 2.0 if sloop else 1.0
-    # A_ub · v ≤ b_ub  mit  −Bilanz ≤ −Ziel
+    # A_ub · v ≤ b_ub  with  −balance ≤ −target
     A = np.zeros((len(items), n_r + n_s + n_u))
     for j, r in enumerate(rs):
         R = RECIPES[r]
@@ -102,7 +102,7 @@ def solve(targets, recipes, surplus=None, exclude=(), goal='raw', max_clock=1.0,
         A[ix[k], n_r + n_s + j] = 1
     b = np.array([targets.get(k, 0.0) for k in items])
 
-    # Kosten je Rezeptlauf/min: Maschinen = Läufe ÷ (Läufe je Maschine bei max. Takt), Strom = Maschinen × MW
+    # cost per recipe run/min: machines = runs ÷ (runs per machine at max clock), power = machines × MW
     per_m = np.array([60.0 / RECIPES[r]['time'] * max_clock for r in rs])
     mw = np.array([_power(BUILDINGS.get(RECIPES[r]['producedIn'][0], {}).get('metadata', {}), max_clock) * (4 if sloop else 1) for r in rs])
     wmax = max(v for k, v in WORLD.items() if k != 'Desc_Water_C')
@@ -113,7 +113,7 @@ def solve(targets, recipes, surplus=None, exclude=(), goal='raw', max_clock=1.0,
         c_r, c_s = mw / per_m, raw_w * 1e-3
     else:
         c_r, c_s = 1e-4 / per_m, raw_w
-    c = np.concatenate([c_r, c_s, np.full(n_u, 1e-5)])   # Überschüsse fast kostenlos
+    c = np.concatenate([c_r, c_s, np.full(n_u, 1e-5)])   # surpluses almost free
     bounds = [(0, None)] * (n_r + n_s) + [(0, surplus[k]) for k in sur]
     res = linprog(c, A_ub=-A, b_ub=-b, bounds=bounds, method='highs')
     if not res.success:
@@ -124,11 +124,11 @@ def solve(targets, recipes, surplus=None, exclude=(), goal='raw', max_clock=1.0,
         if x[j] < 1e-7:
             continue
         R = RECIPES[r]
-        n = x[j] / per_m[j]                               # Maschinen bei max. Takt
+        n = x[j] / per_m[j]                               # machines at max clock
         bdesc = BUILDINGS.get(R['producedIn'][0], {})
         meta = bdesc.get('metadata', {})
         full, frac = int(math.floor(n + 1e-6)), n - math.floor(n + 1e-6)
-        # volle Maschinen auf max_clock, die letzte auf den Rest
+        # full machines at max_clock, the last one at the remainder
         power = (full * _power(meta, max_clock) + (_power(meta, frac * max_clock) if frac > 1e-3 else 0)) * (4 if sloop else 1)
         steps.append(dict(recipe=R['name'], cls=r, alt=R['alternate'], building=bdesc.get('name', R['producedIn'][0]),
                           machines=round(n, 3), full=full, full_clock=round(max_clock * 100),

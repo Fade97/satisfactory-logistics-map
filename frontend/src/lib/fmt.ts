@@ -1,16 +1,16 @@
-// Formatierung + gemeinsame Farben.
+// Formatting + shared colours.
 
-// Diagrammreihen: validiert (dataviz validate_palette, dark, Fläche #1b1c1e) — Reihenfolge fest.
+// Chart series: validated (dataviz validate_palette, dark, surface #1b1c1e) — fixed order.
 export const SERIES = ['#d27a0e', '#3f7fbf', '#2f9c6a', '#9a65d6', '#a8860f', '#c2527a'];
 
-// Bedeutungsfarben der Karte (DESIGN.md): Beladen = Orange, Entladen = Kobalt.
+// Semantic map colours (DESIGN.md): load = orange, unload = cobalt.
 export const C = {
   load: '#f59a23', unload: '#5b9bd5', mixed: '#b58be8', none: '#6f6b64',
   ok: '#4cc38a', warn: '#e2b93b', bad: '#e5484d', idle: '#6f6b64',
   player: '#f5f2ea', train: '#5b9bd5', truck: '#f59a23',
 };
 export const MODE_LABEL: Record<string, string> = { load: 'Load', unload: 'Unload', mixed: 'mixed', none: 'no platform' };
-/** Farbe einer Maschine: stehend wegen vollem Ausgang = gewollter Puffer → grau, nur Mangel ist rot. */
+/** Machine colour: stopped because the output is full = intended buffer → grey; only starvation is red. */
 export const machineColor = (m: { state: string; block?: string | null }) =>
   m.state === 'stopped' && m.block === 'full' ? '#8a857c' : STATE_COLOR[m.state] || '#6f6b64';
 export const STATE_COLOR: Record<string, string> = {
@@ -19,7 +19,7 @@ export const STATE_COLOR: Record<string, string> = {
 
 import { locale, tr } from './i18n';
 
-// Zahlen im Format der Sprache (ein Sprachwechsel lädt die Seite neu, daher reicht es, das Format einmal zu bauen)
+// Numbers in the language's format (changing the language reloads the page, so building the format once is enough)
 const nf1 = new Intl.NumberFormat(locale(), { maximumFractionDigits: 1 });
 const nf0 = new Intl.NumberFormat(locale(), { maximumFractionDigits: 0 });
 export function fmtNum(v: number | null | undefined): string {

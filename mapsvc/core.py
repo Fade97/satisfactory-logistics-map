@@ -1,14 +1,14 @@
-"""Gemeinsamer Zustand: vorgerenderte API-Blobs, Datenbank, FRM-Status, Log."""
+"""Shared state: pre-rendered API blobs, database, FRM status, log."""
 import datetime, gzip, hashlib, json, os, threading, time
 
 import store as storemod
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DIST = os.path.join(HERE, 'frontend', 'dist')
-DATA = os.environ.get('MAP_DATA', os.path.join(HERE, 'data'))          # Datenbank, Notiz-Passwort
-SAVES = os.environ.get('MAP_SAVES', os.path.join(HERE, 'saves'))       # zuletzt geholtes Save (latest.sav)
+DATA = os.environ.get('MAP_DATA', os.path.join(HERE, 'data'))          # database, pin password
+SAVES = os.environ.get('MAP_SAVES', os.path.join(HERE, 'saves'))       # most recently fetched save (latest.sav)
 PW_FILE = os.path.join(DATA, 'pin_password')
-TITLE = os.environ.get('MAP_TITLE', '')                                # Name oben links; leer = Sessionname aus dem Save
+TITLE = os.environ.get('MAP_TITLE', '')                                # name shown top left; empty = session name from the save
 
 LIVE_EVERY, FACTORY_EVERY, SAVE_EVERY = 5, 60, 60
 
@@ -18,20 +18,20 @@ def log(*a):
 
 
 class State:
-    """Alles, was die API ausliefert — vorgerendert als JSON-Bytes (gzip), getauscht unter Lock."""
+    """Everything the API serves — pre-rendered as JSON bytes (gzip), swapped under a lock."""
 
     def __init__(self):
         self.lock = threading.Lock()
         self.blobs = {}                     # name -> (etag, gzip-bytes, raw-bytes)
         self.frm_ok = False
-        self.frm_since = None               # seit wann FRM (nicht) antwortet
+        self.frm_since = None               # since when FRM has (not) been responding
         self.frm_error = None
         self.save_meta = None
-        self.save_error = None              # letzter Fehler beim Holen/Lesen des Saves
-        self.stations = None                # Save: Stationen, Routen
-        self.factory = None                 # Save oder FRM: Maschinen, Strom …
+        self.save_error = None              # last error fetching/reading the save
+        self.stations = None                # save: stations, routes
+        self.factory = None                 # save or FRM: machines, power …
         self.factory_source = None
-        self.geo = None                     # Netzgeometrie
+        self.geo = None                     # network geometry
         self.live = None
         self.prev_live = None
 
@@ -51,7 +51,7 @@ ST = State()
 DB = storemod.Store()
 
 
-# ================================================================ FRM-Zustand
+# ================================================================ FRM status
 def frm_status(ok, err=None):
     if ok != ST.frm_ok or ST.frm_since is None:
         ST.frm_since = time.time()
@@ -75,5 +75,5 @@ def frm_configured():
 
 
 def paused():
-    """Spiel pausiert (niemand online)? Dann steht die Fabrik still — nicht aufzeichnen."""
+    """Game paused (nobody online)? Then the factory is idle — do not record."""
     return bool(ST.frm_ok and ST.live and ST.live.get('paused'))

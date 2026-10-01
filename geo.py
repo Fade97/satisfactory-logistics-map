@@ -1,17 +1,17 @@
-"""Netzgeometrie (Gleise, Rohre, Bänder), Maschinen und Kartenmarker aus FRM → /api/geo.
+"""Network geometry (rails, pipes, belts), machines and map markers from FRM → /api/geo.
 
-Ändert sich selten — mapd holt sie deshalb nur alle paar Minuten, nicht im 5-Sekunden-Takt.
-Koordinaten in Metern als Ganzzahlen; Polylinien werden vereinfacht (Douglas-Peucker).
+Changes rarely — so mapd fetches it only every few minutes, not on the 5-second tick.
+Coordinates in metres as integers; polylines are simplified (Douglas-Peucker).
 """
 import json, os, sys
 import frm
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-TOL = 2.0                                   # Meter: alles darunter sieht man auf der Karte nicht
+TOL = 2.0                                   # metres: anything below is invisible on the map
 
 
 def _rdp(pts, tol):
-    """Douglas-Peucker, iterativ (Rekursion reicht bei 134 Punkten, aber so ist es robust)."""
+    """Douglas-Peucker, iterative (recursion would do for 134 points, but this is robust)."""
     if len(pts) < 3:
         return pts
     keep = [False] * len(pts)
@@ -95,6 +95,6 @@ def build():
 
 if __name__ == '__main__':
     d = build()
-    print('geo: %.1f MB · %d Gleise, %d Rohre, %d Bänder, %d Maschinen, %d Generatoren, %d Marker' % (
+    print('geo: %.1f MB · %d rails, %d pipes, %d belts, %d machines, %d generators, %d markers' % (
         len(json.dumps(d, separators=(',', ':'))) / 1e6, len(d['rails']), len(d['pipes']), len(d['belts']),
         len(d['machines']), len(d['generators']), len(d['markers'])))

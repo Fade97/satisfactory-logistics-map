@@ -1,4 +1,4 @@
-"""Satisfactory .sav Reader (nur Lesen) für den Build 'anniversary-2026' – liefert Objekt-Header + Rohdaten."""
+"""Satisfactory .sav reader (read-only) for build 'anniversary-2026' - returns object headers + raw data."""
 import struct, zlib, sys
 import sbp
 
@@ -6,7 +6,7 @@ def read_body(path):
     d=open(path,'rb').read(); i=d.find(sbp.MAGIC); parts=[]
     while i<len(d):
         cs,us=struct.unpack_from('<qq',d,i+17); parts.append(zlib.decompress(d[i+49:i+49+cs])); i+=49+cs
-    return b''.join(parts)   # join statt += : += kopiert den ganzen Puffer je Chunk
+    return b''.join(parts)   # join instead of +=: += copies the whole buffer per chunk
 
 def read_header(r):
     t=r.i32(); h=dict(type=t, cls=r.s(), root=r.s(), name=r.s())
@@ -26,16 +26,16 @@ def parse_levels(body, start):
         ne=r.i32(); prev=[(r.s(),r.s()) for _ in range(ne)]
         r.i32(); r.i32()
         r.i32(); r.i32(); r.i32(); r.raw(6); r.u32(); r.s(); n=r.i32(); r.raw(20*n)
-        # Hauptlevel hat keinen Namen: prüfen, ob ein kurzer ASCII-String folgt
+        # the main level has no name: check whether a short ASCII string follows
         pk=r.p; ln=struct.unpack_from('<i',body,pk)[0]
         if 0<ln<64 and all(32<=c<127 for c in body[pk+4:pk+3+ln]): name=r.s()
         else: name=''
         sz=r.i64(); nh=r.i32(); hstart=r.p
         headers=[read_header(r) for _ in range(nh)]
         end=hstart+sz-4; pc=r.p; coll=[]
-        # Die Sammelliste ist entweder gruppiert (Levelname + Eintraege) oder flach.
-        # Ohne Schranken liest der falsche Zweig Muellaengen und kopiert Megabytes,
-        # bevor er scheitert -- daher jede Laenge gegen das Abschnittsende pruefen.
+        # The collectables list is either grouped (level name + entries) or flat.
+        # Without bounds the wrong branch reads garbage lengths and copies megabytes
+        # before it fails -- so check every length against the end of the section.
         def gs():
             n,=struct.unpack_from('<i',r.b,r.p)
             if not -1000<n<1000 or r.p+4+abs(n)*(2 if n<0 else 1)>end: raise ValueError('len')

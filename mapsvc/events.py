@@ -1,10 +1,10 @@
-"""Ereignisse (Flanke, Hysterese, 2-h-Sperre), Änderungsprotokoll, Wachstum, Lager-Warnungen."""
+"""Events (edge detection, hysteresis, 2 h cooldown), change log, growth, storage warnings."""
 import collections, json, os, re, time
 
 from .core import ST, DB, paused
 
 
-# ---------------------------------------------------------------- Ältere deutsche Ereignistexte → Englisch (einmalig)
+# ---------------------------------------------------------------- legacy German event texts → English (one-off)
 TEXTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'frontend', 'src', 'lib', 'i18n', 'server-texts.json')
 
 
@@ -25,7 +25,7 @@ def _de_to_en():
 
 
 def migrate_texts():
-    """Ereignisse aus der Zeit vor der Umstellung auf englische Backend-Texte übersetzen — einmal je Datenbank."""
+    """Translate events from before the switch to English backend texts — once per database."""
     if DB.kv_get('texts_en', False) or not os.path.exists(TEXTS):
         return
     conv = _de_to_en()
@@ -45,15 +45,15 @@ def migrate_texts():
 migrate_texts()
 
 
-# ---------------------------------------------------------------- Ereignisse
+# ---------------------------------------------------------------- events
 _seen = {k: set(v) for k, v in DB.kv_get('seen', {}).items()}
 
 
 def _edge(kind, key, active, level, text, x=None, y=None, clear=None):
-    """Nur beim Wechsel melden (Flanke), nicht jede Minute erneut — auch nicht nach einem Neustart.
+    """Report only on a change (edge), not again every minute — not even after a restart.
 
-    `clear` (optional) ist eine strengere Bedingung fürs Zurücksetzen (Hysterese): Eine Fabrik, die um die
-    Warnschwelle pendelt, meldet sich sonst alle paar Minuten neu. Zusätzlich frühestens nach 2 h erneut.
+    `clear` (optional) is a stricter condition for resetting (hysteresis): otherwise a factory oscillating
+    around the warning threshold would report again every few minutes. Additionally, re-report after 2 h at the earliest.
     """
     s = _seen.setdefault(kind, set())
     if active and key not in s:
@@ -81,7 +81,7 @@ def factory_events(fac, t):
     _edge('nopower', 'all', bool(nop), 'warn', '%d machines not connected to power' % len(nop),
           *(nop[0]['pos'] if nop else (None, None)))
     for f in fac['factories']:
-        if f.get('status') != 'active':          # im Aufbau / stillgelegt / Puffer: keine Warnungen
+        if f.get('status') != 'active':          # building / decommissioned / buffer: no warnings
             _edge('stall', f['key'], False, 'warn', '')
             continue
         bad = f['starved'] / max(1, f['n'])
@@ -121,9 +121,9 @@ def live_events(live):
     ST.prev_live = live
 
 
-# ---------------------------------------------------------------- Änderungsprotokoll + Wachstum
+# ---------------------------------------------------------------- change log + growth
 def changelog(fac, t):
-    """Vergleicht Gebäude-IDs mit dem letzten Save-Stand: neu / abgerissen, je Typ und Erbauer."""
+    """Compare building IDs with the previous save: built / removed, per type and builder."""
     cur = {m['id']: [m['name'], m['pos'][0], m['pos'][1], m.get('by')] for m in fac['machines'] + fac['generators']}
     old_t, old = DB.snapshot_get('buildings')
     DB.snapshot_put('buildings', t, cur)
@@ -156,10 +156,10 @@ def growth(fac, t):
     DB.kv_put('schematics', cur)
 
 
-# ---------------------------------------------------------------- Lager + Sink
+# ---------------------------------------------------------------- storage + sink
 def storage_events(st):
-    """„Lager voll“: nur Container, an denen eine Fabrik hängt, die dadurch staut (Maschinen mit vollem Ausgang
-    in 60 m) — ein volles Endlager ohne Zulauf ist gewollt. Eine Meldung je Container, Hysterese über _edge."""
+    """'Storage full' warning: only containers with a factory attached that backs up because of it (machines with full
+    output within 60 m) — a full end-of-line storage with no inflow is intended. One report per container, hysteresis via _edge."""
     fac = ST.factory or {}
     full_out = [m for m in fac.get('machines', []) if m.get('block') == 'full']
     for c in st:

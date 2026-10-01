@@ -49,4 +49,7 @@ make check    # additionally svelte-check, build and a smoke test of all pages (
 
 ## Contributing
 Issues and pull requests are welcome. Please run `make test` before opening a PR. The UI is in English by default,
-with German as an option (`frontend/src/lib/i18n/`, terms in `GLOSSARY.md`). More translations would be a good contribution.
+with German as an option. UI texts are English in the source (`$t('Map')` in markup, `tr('Map')` in scripts); German lives in
+`frontend/src/lib/i18n/de/*.ts`, and `tests/i18n.test.ts` fails when a text has no German entry. Texts produced by the
+backend (events, stop reasons, errors) are English and translated via `frontend/src/lib/i18n/server-texts.json`.
+Terms: `frontend/src/lib/i18n/GLOSSARY.md`. More languages would be a good contribution.

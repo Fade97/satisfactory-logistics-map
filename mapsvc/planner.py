@@ -1,11 +1,11 @@
-"""Anbindung des Produktionsrechners an den Dienst (/api/plan)."""
+"""Production planner integration for the service (/api/plan)."""
 import threading
 
 from .core import ST
 from .factory import balance
 
 
-# ================================================================ Produktionsrechner
+# ================================================================ production planner
 PLAN_LOCK = threading.Semaphore(2)
 
 
@@ -29,7 +29,7 @@ def plan(b):
             net = x['prod'] - x['cons']
             if net > 0.5:
                 try:
-                    surplus[planner.item_key(x['item'])] = round(net * 0.9, 2)    # 10 % Luft lassen
+                    surplus[planner.item_key(x['item'])] = round(net * 0.9, 2)    # keep 10 % headroom
                 except KeyError:
                     pass
     if not PLAN_LOCK.acquire(timeout=10):
@@ -37,7 +37,7 @@ def plan(b):
     try:
         goal = b.get('goal') if b.get('goal') in ('raw', 'machines', 'power') else 'raw'
         clock = min(2.5, max(0.01, float(b.get('max_clock') or 1.0)))
-        # Rezeptwahl je Ware: {item_name: [erlaubte Rezeptklassen]} → alle anderen Rezepte dieser Ware ausschließen
+        # recipe choice per item: {item_name: [allowed recipe classes]} → exclude all other recipes for that item
         excl = set(b.get('exclude') or [])
         for item_name, allowed in (b.get('allow') or {}).items():
             try:

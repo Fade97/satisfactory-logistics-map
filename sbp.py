@@ -223,7 +223,7 @@ def parse_struct(r,st,size):
     if st=='Guid': return r.raw(16)
     if st=='FluidBox': return r.f32()
     if st=='InventoryItem':
-        # Anniversary-2026: int32 0, Item-Pfad, Rest (frueher lvl/path) als Rohbytes
+        # Anniversary-2026: int32 0, item path, rest (formerly lvl/path) as raw bytes
         if size is None: return {'pad':r.i32(),'item':r.s(),'lvl':r.s(),'path':r.s()}
         e=r.p+size; d={'pad':r.i32(),'item':r.s()}; d['rest']=r.raw(e-r.p); return d
     if st=='RailroadTrackPosition': return {'lvl':r.s(),'path':r.s(),'offset':r.f32(),'fwd':r.f32()}

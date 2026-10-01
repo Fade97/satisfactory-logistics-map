@@ -1,6 +1,6 @@
 <script lang="ts">
-  // Kiosk für einen Nebenbildschirm: Karte (folgt einem Spieler) + Feed + Kennzahlen, optional rotierend.
-  // #/kiosk?follow=<Spieler>&rotate=30
+  // Kiosk for a second screen: map (follows a player) + feed + key figures, optionally rotating.
+  // #/kiosk?follow=<player>&rotate=30
   import { onMount, onDestroy } from 'svelte';
   import { factory, live, status } from '../lib/api';
   import { route } from '../lib/router';
@@ -21,13 +21,13 @@
   onMount(() => { if (rotate) timer = window.setInterval(() => (idx = (idx + 1) % pages.length), rotate * 1000); });
   onDestroy(() => clearInterval(timer));
 
-  // Fester Spieler aus ?follow=, sonst der erste, der online ist (offline wird nicht verfolgt — MapPage pausiert dann)
+  // fixed player from ?follow=, otherwise the first one online (offline players aren't followed — MapPage pauses then)
   const who = $derived(q.get('follow') || ($live?.players.find(p => p.online === true)?.name ?? ''));
   const f = $derived($factory);
   const power = $derived((f?.circuits || []).reduce((a, c) => ({ use: a.use + c.use, cap: a.cap + c.cap }), { use: 0, cap: 0 }));
   const stalled = $derived((f?.machines || []).filter(m => m.state === 'stopped' && m.block !== 'full').length);
   const deficit = $derived((f?.balance || []).map(b => ({ item: b.item, net: b.prod - b.cons })).filter(b => b.net < -0.5).sort((a, b) => a.net - b.net).slice(0, 4));
-  const moving = $derived(($live?.trains || []).filter(z => (z.speed || 0) > 5).length);
+  const moving = $derived(($live?.trains || []).filter(train => (train.speed || 0) > 5).length);
   let now = $state(new Date());
   const tick = setInterval(() => (now = new Date()), 10000);
   onDestroy(() => clearInterval(tick));

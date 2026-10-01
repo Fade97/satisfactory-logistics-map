@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Seitenleiste der Karte: Stationen/Waren durchsuchen, Filter-Chips, Spieler online.
+  // Map sidebar: search stations/items, filter chips, players online.
   import { live, stations } from '../api';
   import { C, MODE_LABEL } from '../fmt';
   import { tn, both } from '../names';

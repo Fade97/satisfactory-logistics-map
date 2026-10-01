@@ -1,17 +1,18 @@
-"""Generator für das Bahn-Blueprint-Set (Korridor: 2 Gleise + Hypertube, Kreuzungen, Bahnhöfe).
+"""Generator for the rail blueprint set (corridor: 2 tracks + hypertube, junctions, stations).
 
-Alle Geometrie wird global in cm definiert und danach in 40-m-Designer-Boxen (5x5x5) zerschnitten.
-Konventionen:
-  - Korridor 24 m breit, symmetrisch: Fundamentreihen y=-800/0/800, Gleis B (y=-800, fährt +x),
-    Gleis A (y=+800, fährt -x) -> Rechtsverkehr. Hypertube mittig (y=0) auf 1,75 m.
-  - Gleis-Objekte sind immer ein Hermite-Segment (2 Punkte). TrackConnection0 = Anfang, 1 = Ende.
-  - Signale/Weichen entstehen aus Knoten (zusammenfallende Gleisenden) automatisch.
+All geometry is defined globally in cm and then cut into 40 m designer boxes (5x5x5).
+Conventions:
+  - Corridor 24 m wide, symmetrical: foundation rows y=-800/0/800, track B (y=-800, runs +x),
+    track A (y=+800, runs -x) -> right-hand traffic. Hypertube in the middle (y=0) at 1.75 m.
+  - Track objects are always a single Hermite segment (2 points). TrackConnection0 = start, 1 = end.
+  - Signals/switches are derived automatically from nodes (coinciding track ends).
 """
 import math, copy, os, sys
 import sbp
 
-SRC = os.environ.get('BP_SRC', 'extracted/blueprints')  # Ordner mit eigenen Blueprints als Vorlage (u. a. 'Asphalt + Schiene - Gerade')
-OUT = "blueprints/bahn-set"
+SRC = os.environ.get('BP_SRC', 'extracted/blueprints')  # folder with your own blueprints used as templates (needs TEMPLATE)
+TEMPLATE = 'Asphalt + Schiene - Gerade'   # name of the player's own in-game blueprint used as header/.sbpcfg template
+OUT = "blueprints/rail-set"
 LVL = "Persistent_Level"
 PL = "Persistent_Level:PersistentLevel."
 BOX = 2000.0
@@ -19,12 +20,12 @@ FOUND_Z = 49.984073638916016
 TOP_Z = 99.98407745361328
 TUBE_H = 175.0
 TUBE_Z = TOP_Z + TUBE_H
-BRIDGE_H = 700.0          # Tube-Brücke über Gleise (Lok 6 m hoch, Tube-Radius 0,75 m)
-BRIDGE_H2 = 850.0         # zweite Brücke darüber (X-Kreuzung)
+BRIDGE_H = 700.0          # tube bridge over the tracks (locomotive 6 m high, tube radius 0.75 m)
+BRIDGE_H2 = 850.0         # second bridge above it (X-crossing)
 B_Y, A_Y, TUBE_Y = -800.0, 800.0, 0.0
-K_ARC = 4.0 / 3.0 * math.tan(math.pi / 8) * 3.0   # Hermite-Tangentenlänge/R für Viertelkreis (=1.657)
+K_ARC = 4.0 / 3.0 * math.tan(math.pi / 8) * 3.0   # Hermite tangent length/R for a quarter circle (=1.657)
 
-# ---------------- Klassen / Rezepte ----------------
+# ---------------- classes / recipes ----------------
 C = dict(
     found='/Game/FactoryGame/Buildable/Building/Foundation/AsphaltSet/Build_Foundation_Asphalt_8x1.Build_Foundation_Asphalt_8x1_C',
     track='/Game/FactoryGame/Buildable/Factory/Train/Track/Build_RailroadTrack.Build_RailroadTrack_C',
@@ -74,7 +75,7 @@ SWATCH_CONCRETE = '/Game/FactoryGame/Buildable/-Shared/Customization/Swatches/Sw
 SWATCH_SLOT2 = '/Game/FactoryGame/Buildable/-Shared/Customization/Swatches/SwatchDesc_Slot2.SwatchDesc_Slot2_C'
 
 def desc(part): return f'/Game/FactoryGame/Resource/Parts/{part}/Desc_{part}.Desc_{part}_C'
-COST = {   # je Objekt: {Teil: Menge}; Gleis/Tube werden längenabhängig berechnet
+COST = {   # per object: {part: amount}; track/tube are computed from their length
     'found': {'Cement': 7},
     'support': {'IronPlate': 2, 'Cement': 2},
     'railing': {'IronRod': 2},
@@ -90,7 +91,7 @@ COST = {   # je Objekt: {Teil: Menge}; Gleis/Tube werden längenabhängig berech
     'itrack': {},
 }
 
-# ---------------- Property-Helfer ----------------
+# ---------------- property helpers ----------------
 def T(name, *children): return [name, list(children)]
 def P_obj(name, ref): return dict(name=name, type=T('ObjectProperty'), flags=0, value=list(ref))
 def P_objarr(name, refs): return dict(name=name, type=T('ArrayProperty', T('ObjectProperty')), flags=0, value=[list(r) for r in refs])
@@ -101,7 +102,7 @@ def P_byte(name, v): return dict(name=name, type=T('ByteProperty'), flags=0, val
 def P_struct(name, sname, pkg, props, flags=0): return dict(name=name, type=T('StructProperty', T(sname, T(pkg))), flags=flags, value=props)
 def P_vec(name, v): return P_struct(name, 'Vector', '/Script/CoreUObject', [float(x) for x in v], flags=8)
 def P_splinedata(pts):
-    """pts: Liste (loc, arrive, leave)"""
+    """pts: list of (loc, arrive, leave)"""
     return dict(name='mSplineData', type=T('ArrayProperty', T('StructProperty', T('SplinePointData', T('/Script/Engine')))), flags=0,
                 value=[[P_vec('Location', l), P_vec('ArriveTangent', a), P_vec('LeaveTangent', b)] for l, a, b in pts])
 def generic_props(recipe, swatch, colorslot):
@@ -114,7 +115,7 @@ def quat_yaw(deg):
     r = math.radians(deg) / 2
     return [0.0, 0.0, math.sin(r), math.cos(r)]
 
-# ---------------- Geometrie ----------------
+# ---------------- geometry ----------------
 def v(a, b): return [a[0] + b[0], a[1] + b[1], (a[2] if len(a) > 2 else 0) + (b[2] if len(b) > 2 else 0)]
 def sub(a, b): return [a[0] - b[0], a[1] - b[1], (a[2] if len(a) > 2 else 0) - (b[2] if len(b) > 2 else 0)]
 def mul(a, s): return [a[0] * s, a[1] * s, (a[2] if len(a) > 2 else 0) * s]
@@ -123,7 +124,7 @@ def norm(a):
 def p3(a): return [float(a[0]), float(a[1]), float(a[2]) if len(a) > 2 else 0.0]
 
 class Seg:
-    """Hermite-Segment P0 -> P1 (global, 3D), Tangenten T0/T1. kind: 'track' | 'itrack' | 'tube'"""
+    """Hermite segment P0 -> P1 (global, 3D), tangents T0/T1. kind: 'track' | 'itrack' | 'tube'"""
     def __init__(self, P0, T0, P1, T1, kind='track', tag=None):
         self.P0, self.T0, self.P1, self.T1, self.kind, self.tag = p3(P0), p3(T0), p3(P1), p3(T1), kind, tag
     def bezier(self):
@@ -140,7 +141,7 @@ class Seg:
         s2 = Seg(m, mul(sub(b123, m), 3), b[3], mul(sub(b[3], b23), 3), self.kind, self.tag)
         return s1, s2
     def split_at_axis(self, axis, val):
-        """teilt am Schnitt mit axis==val (falls echter Schnitt im Inneren), sonst None"""
+        """splits at the intersection with axis==val (if it is a real interior intersection), otherwise None"""
         a0, a1 = self.P0[axis], self.P1[axis]
         if (a0 - val) * (a1 - val) >= -1e-6: return None
         lo, hi = 0.0, 1.0
@@ -158,13 +159,13 @@ def straight(P0, P1, kind='track', tmag=None, tag=None):
     return Seg(P0, t, P1, t, kind, tag)
 
 def arc(P0, d0, turn, R, kind='track'):
-    """Viertelkreis ab P0 in Richtung d0 (Einheitsvektor, 2D), turn=+1 links / -1 rechts."""
-    d0 = norm(p3(d0)); n = [-d0[1] * turn, d0[0] * turn, 0.0]     # Normale zur Kurveninnenseite
+    """Quarter circle from P0 in direction d0 (unit vector, 2D), turn=+1 left / -1 right."""
+    d0 = norm(p3(d0)); n = [-d0[1] * turn, d0[0] * turn, 0.0]     # normal towards the inside of the curve
     P1 = v(v(P0, mul(d0, R)), mul(n, R)); d1 = n
     return Seg(P0, mul(d0, K_ARC * R), P1, mul(d1, K_ARC * R), kind)
 
 def tube_profile(axis, other, pts_zx, z0=TUBE_Z):
-    """Mehrpunkt-Tube entlang axis ('x'|'y'); pts_zx: Liste (koord, z). Waagerechte Tangenten (S-Rampen)."""
+    """Multi-point tube along axis ('x'|'y'); pts_zx: list of (coord, z). Horizontal tangents (S-ramps)."""
     segs = []
     for (a0, za), (a1, zb) in zip(pts_zx, pts_zx[1:]):
         P0 = [a0, other, za] if axis == 'x' else [other, a0, za]
@@ -174,20 +175,20 @@ def tube_profile(axis, other, pts_zx, z0=TUBE_Z):
         segs.append(Seg(P0, mul(d, L), P1, mul(d, L), 'tube'))
     return segs
 
-# ---------------- Stück-Definition ----------------
+# ---------------- piece definition ----------------
 class Piece:
     def __init__(self, name, desc, boxes):
         self.name, self.desc, self.boxes = name, desc, boxes   # boxes: [(cx, cy, suffix)]
         self.segs = []; self.founds = []; self.supports = []; self.railings = []; self.signals = []; self.platforms = []
         self.beams = []; self.lamps = []
     def lamp(self, x, y, yaw=0.0):
-        """Tube-Stuetze + 2 Strassenlaternen (1,5 m beidseitig) + Kabel; yaw = Tube-Richtung"""
+        """Tube support + 2 street lights (1.5 m on either side) + cable; yaw = tube direction"""
         self.supports.append((x, y, TUBE_H, yaw)); self.lamps.append((x, y, yaw))
     def beam(self, x0, y0, x1, y1): self.beams.append((x0, y0, x1, y1))
     def track(self, *segs):
         for s in segs: self.segs.append(s)
     def corridor_x(self, x0, x1, nodes_b=(), nodes_a=()):
-        """gerader Korridor entlang x: Gleis B (+x) und A (-x), Tube, Fundamente, Stützen"""
+        """straight corridor along x: track B (+x) and A (-x), tube, foundations, supports"""
         xb = sorted(set([x0, x1] + list(nodes_b))); xa = sorted(set([x0, x1] + list(nodes_a)), reverse=True)
         for p, q in zip(xb, xb[1:]): self.segs.append(straight([p, B_Y, TOP_Z], [q, B_Y, TOP_Z]))
         for p, q in zip(xa, xa[1:]): self.segs.append(straight([p, A_Y, TOP_Z], [q, A_Y, TOP_Z]))
@@ -197,7 +198,7 @@ class Piece:
     def tube_x(self, x0, x1, y=TUBE_Y): self.segs.append(straight([x0, y, TUBE_Z], [x1, y, TUBE_Z], 'tube', tmag=abs(x1 - x0) / 2))
     def tube_y(self, y0, y1, x=TUBE_Y): self.segs.append(straight([x, y0, TUBE_Z], [x, y1, TUBE_Z], 'tube', tmag=abs(y1 - y0) / 2))
     def railings_x(self, x0, x1, y, facing):
-        for x in frange(x0 + 200, x1, 400): self.railings.append((x, y, -90.0))   # wie vom Spieler im Spiel gesetzt
+        for x in frange(x0 + 200, x1, 400): self.railings.append((x, y, -90.0))   # as placed by the player in the game
     def railings_y(self, y0, y1, x, facing):
         for y in frange(y0 + 200, y1, 400): self.railings.append((x, y, 0.0))
     def signal(self, x, y, travel, kind): self.signals.append((x, y, norm(p3(travel)), kind))
@@ -207,7 +208,7 @@ def frange(a, b, step):
     while x < b - 1e-6: out.append(x); x += step
     return out
 
-# ---------------- Blueprint-Bau ----------------
+# ---------------- blueprint building ----------------
 class Builder:
     def __init__(self):
         self.headers = []; self.objs = []; self.comp_headers = []; self.comp_objs = []
@@ -217,7 +218,7 @@ class Builder:
         for k, a in COST.get(kind, {}).items(): self.cost[k] = self.cost.get(k, 0) + a * mult
         if kind in RECIPE and RECIPE[kind] not in self.recipes: self.recipes.append(RECIPE[kind])
     def actor(self, cls, name, pos, rot, props, comps):
-        """comps: Liste (compname, (cls, flags), props)"""
+        """comps: list of (compname, (cls, flags), props)"""
         self.headers.append(dict(type=1, cls=cls, root=LVL, name=PL + name, flags=8, needTransform=1, rot=list(rot), pos=[float(x) for x in pos], scale=[1.0, 1.0, 1.0], placed=0))
         self.objs.append(dict(obj=dict(parent=[LVL, PL + 'BuildableSubsystem'], components=[[LVL, PL + name + '.' + c[0]] for c in comps], pre=0, props=props, trail=b'\x00\x00\x00\x00')))
         for cn, (ccls, cfl), cprops in comps:
@@ -230,7 +231,7 @@ def ref(name): return [LVL, PL + name]
 def build_box(piece, cx, cy, suffix, H_tpl):
     b = Builder(); off = [cx, cy, 0.0]
     inside = lambda x, y: (cx - BOX - 1 <= x <= cx + BOX + 1) and (cy - BOX - 1 <= y <= cy + BOX + 1)
-    # --- Segmente an Box-Kanten zerschneiden, nur innere behalten
+    # --- cut segments at the box edges, keep only the inner ones
     segs = list(piece.segs)
     for axis, vals in ((0, (cx - BOX, cx + BOX)), (1, (cy - BOX, cy + BOX))):
         for val in vals:
@@ -240,7 +241,7 @@ def build_box(piece, cx, cy, suffix, H_tpl):
                 out.extend(r if r else [s])
             segs = out
     segs = [s for s in segs if inside(*s.point(0.5)[:2])]
-    # --- Gleise -> Objekte, Enden sammeln
+    # --- tracks -> objects, collect ends
     ends = []   # (node_key, compref, outward_dir, segindex)
     tracks = [s for s in segs if s.kind in ('track', 'itrack')]
     names = []
@@ -258,11 +259,11 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         if kind == 'track':
             n = max(1, round(L / 12)); b.cost['SteelPlate'] = b.cost.get('SteelPlate', 0) + n; b.cost['SteelPipe'] = b.cost.get('SteelPipe', 0) + n
         b.addcost(kind)
-    # --- Knoten: Verbindungen + Weichen
+    # --- nodes: connections + switches
     nodes = {}
     on_edge = lambda k: abs(abs(k[0] - cx) - BOX) < 2 or abs(abs(k[1] - cy) - BOX) < 2
     for e in ends:
-        if not on_edge(e[0]): nodes.setdefault(e[0], []).append(e)   # Enden auf der Box-Kante verbindet das Spiel beim Platzieren
+        if not on_edge(e[0]): nodes.setdefault(e[0], []).append(e)   # the game connects ends on the box edge when placing
     conn = {e[1]: [] for e in ends}
     for k, es in nodes.items():
         if len(es) == 2:
@@ -281,33 +282,33 @@ def build_box(piece, cx, cy, suffix, H_tpl):
                      P_struct('mSwitchData', 'SwitchData', '/Script/FactoryGame', [])] + generic_props(RECIPE['switch'], SWATCH_SLOT2, 2)
             b.actor(C['switch'], name, sub(trunk[3].P1 if trunk[1].endswith('1') else trunk[3].P0, off), quat_yaw(yaw), props, [])
             b.addcost('switch')
-        elif len(es) > 3: raise Exception('Knoten mit >3 Gleisenden bei ' + str(k))
+        elif len(es) > 3: raise Exception('node with >3 track ends at ' + str(k))
     for co in b.comp_objs:
-        # Komponentenname aus Header holen
+        # get the component name from the header
         pass
     for h, o in zip(b.comp_headers, b.comp_objs):
         cn = h['name'][len(PL):]
         if cn in conn and conn[cn]: o['obj']['props'] = [P_objarr('mConnectedComponents', [ref(x) for x in conn[cn]])]
-    # --- Signale
+    # --- signals
     for x, y, travel, kind in piece.signals:
         if not inside(x, y): continue
         es = nodes.get(key([x, y, TOP_Z]), [])
         guarded = [e[1] for e in es if sum(e[2][m] * travel[m] for m in range(3)) > 0.5]
         observed = [e[1] for e in es if sum(e[2][m] * travel[m] for m in range(3)) < -0.5]
-        assert guarded and observed, ('Signal ohne Gleisknoten', piece.name, x, y)
+        assert guarded and observed, ('signal without track node', piece.name, x, y)
         name = ('Build_RailroadBlockSignal_C_' if kind == 'block' else 'Build_RailroadPathSignal_C_') + str(b.nid())
         props = [P_objarr('mGuardedConnections', [ref(g) for g in guarded]), P_objarr('mObservedConnections', [ref(o) for o in observed]),
                  P_bool('mIsBiDirectional', True)] + generic_props(RECIPE['bsig' if kind == 'block' else 'psig'], SWATCH_SLOT2, 2)
         b.actor(C['bsig' if kind == 'block' else 'psig'], name, sub([x, y, TOP_Z], off), quat_yaw(math.degrees(math.atan2(travel[1], travel[0]))), props, [])
         b.addcost('bsig' if kind == 'block' else 'psig')
-    # --- Bahnsteige (Station / Frachtplattform): Objekte + Plattformverbindungen
+    # --- platforms (station / freight platform): objects + platform connections
     plat_ends = {}   # node_key -> (platname, 'PlatformConnection0/1')
     for x, y, yaw, kind, seg in piece.platforms:
         if not inside(x, y): continue
         tname = None
         for nm, s in zip(names, tracks):
             if s.kind == 'itrack' and s.tag is seg.tag: tname = nm
-        assert tname, 'integriertes Gleis fehlt'
+        assert tname, 'integrated track missing'
         name = {'station': 'Build_TrainStation_C_', 'dock': 'Build_TrainDockingStation_C_', 'dockliq': 'Build_TrainDockingStationLiquid_C_'}[kind] + str(b.nid())
         pc0 = [P_obj('mRailroadTrackConnection', ref(tname + '.TrackConnection0'))]
         pc1 = [P_obj('mRailroadTrackConnection', ref(tname + '.TrackConnection1'))]
@@ -337,7 +338,7 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         if len(es) == 2:
             es[0][2].append(P_obj('mConnectedTo', ref(es[1][0] + '.' + es[1][1])))
             es[1][2].append(P_obj('mConnectedTo', ref(es[0][0] + '.' + es[0][1])))
-    # --- Hypertube: zusammenhaengende Segmente zu einem Mehrpunkt-Spline verketten
+    # --- hypertube: chain connected segments into one multi-point spline
     tubes = [s for s in segs if s.kind == 'tube']
     chains = []
     while tubes:
@@ -362,7 +363,7 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         L = sum(math.dist(s.P0, s.P1) for s in ch) / 100; n = max(1, round(L / 2))
         b.cost['CopperSheet'] = b.cost.get('CopperSheet', 0) + n; b.cost['SteelPipe'] = b.cost.get('SteelPipe', 0) + n
         b.addcost('tube')
-    # --- Stützen, Fundamente, Geländer
+    # --- supports, foundations, railings
     for x, y, h, yaw in piece.supports:
         if not inside(x, y): continue
         b.actor(C['support'], 'Build_PipeHyperSupport_C_' + str(b.nid()), sub([x, y, TOP_Z], off), quat_yaw(yaw),
@@ -378,9 +379,9 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         b.actor(C['railing'], 'Build_Railing_01_C_' + str(b.nid()), sub([x, y, TOP_Z], off), quat_yaw(yaw),
                 generic_props(RECIPE['railing'], SWATCH_SLOT2, 2), [])
         b.addcost('railing')
-    # --- H-Traeger an den Aussenkanten (Ursprung am Anfang, laeuft in Yaw-Richtung)
+    # --- H-beams on the outer edges (origin at the start, runs in yaw direction)
     for x0, y0, x1, y1 in piece.beams:
-        # an Box-Kanten zuschneiden
+        # clip to the box edges
         ax = 0 if abs(x1 - x0) > abs(y1 - y0) else 1
         lo, hi = (cx - BOX, cx + BOX) if ax == 0 else (cy - BOX, cy + BOX)
         a, bb = sorted([(x0, y0)[ax], (x1, y1)[ax]]); a, bb = max(a, lo), min(bb, hi)
@@ -389,10 +390,10 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         b.actor(C['beam'], 'Build_Beam_H_C_' + str(b.nid()), sub(p0, off), quat_yaw(0 if ax == 0 else 90),
                 [P_float('mLength', bb - a)] + generic_props(RECIPE['beam'], SWATCH_SLOT2, 2), [])
         b.cost['SteelPlate'] = b.cost.get('SteelPlate', 0) + max(1, round((bb - a) / 400)); b.addcost('beam')
-    # --- Laternenpaar + Kabel (Vorlage aus der im Spiel angepassten Geraden)
+    # --- pair of street lights + cable (modelled on the straight piece adjusted in the game)
     for x, y, yaw in piece.lamps:
         if not inside(x, y): continue
-        r = math.radians(yaw); nx, ny = -math.sin(r), math.cos(r)      # Normale zur Tube-Richtung
+        r = math.radians(yaw); nx, ny = -math.sin(r), math.cos(r)      # normal to the tube direction
         names = []
         for side in (-1, 1):
             lx, ly = x + side * 150 * nx, y + side * 150 * ny
@@ -416,7 +417,7 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         b.actor(C['wire'], wn, sub(mid, off), quat_yaw(yaw + 90), wire_props, [])
         b.objs[-1]['obj']['trail'] = w.bytes()
         b.addcost('wire')
-    # --- Header + Dateien
+    # --- header + files
     cost = [['', desc(k), a] for k, a in b.cost.items() if a > 0]
     H = dict(hv=H_tpl['hv'], sv=H_tpl['sv'], bv=H_tpl['bv'], dims=[5, 5, 5], cost=cost, recipes=[['', r] for r in b.recipes], tail=H_tpl['tail'])
     fname = piece.name + (' ' + suffix if suffix else '')
@@ -429,63 +430,63 @@ def key(p): return (round(p[0]), round(p[1]))
 
 CFG_SRC = None
 def write_cfg(path, text, src=None):
-    """Beschreibung (.sbpcfg) nach dem Muster einer vorhandenen Datei schreiben — Standard: Bahn-Vorlage."""
+    """Write a description (.sbpcfg) modelled on an existing file (keeps icon/colour) — default: the rail template."""
     global CFG_SRC
     if src: tpl = open(src, 'rb').read()
     else:
-        if CFG_SRC is None: CFG_SRC = open(f'{SRC}/Asphalt + Schiene - Gerade.sbpcfg', 'rb').read()
+        if CFG_SRC is None: CFG_SRC = open(f'{SRC}/{TEMPLATE}.sbpcfg', 'rb').read()
         tpl = CFG_SRC
     r = sbp.R(tpl); ver = r.i32(); r.s(); icon = r.i32(); color = [r.f32() for _ in range(4)]; rest = tpl[r.p:]
     w = sbp.W(); w.i32(ver); w.s(text); w.i32(icon)
     for c in color: w.f32(c)
     w.raw(rest); open(path, 'wb').write(w.bytes())
 
-# ---------------- Stücke ----------------
+# ---------------- pieces ----------------
 def corridor_deco(p, x0, x1):
-    """Geländer (beide Kanten) + H-Träger am Korridor entlang x"""
+    """railings (both edges) + H-beams along a corridor in x"""
     p.railings_x(x0, x1, 1200, +1); p.railings_x(x0, x1, -1200, -1)
     p.beam(x0, -1200, x1, -1200); p.beam(x0, 1200, x1, 1200)
 
 def pieces():
     P = []
-    # 1 Gerade (Referenz = im Spiel angepasste Version des Spielers)
-    p = Piece('Bahn 01 Gerade', 'Korridor 24 m: Gleis B (y=-8 m, faehrt +x), Gleis A (y=+8 m, faehrt -x), Hypertube mittig 1,75 m, Gelaender + H-Traeger aussen, Laternen mittig. Rechtsverkehr.', [(0, 0, '')])
+    # 01 straight (reference = the player's version adjusted in the game)
+    p = Piece('Rail 01 Straight', 'Corridor 24 m: track B (y=-8 m, runs +x), track A (y=+8 m, runs -x), hypertube in the middle at 1.75 m, railings + H-beams outside, street lights in the middle. Right-hand traffic.', [(0, 0, '')])
     p.corridor_x(-2000, 2000); p.tube_x(-2000, 2000); corridor_deco(p, -2000, 2000); p.lamp(0, 0)
     P.append(p)
-    # 2 Gerade + Blocksignale
-    p = Piece('Bahn 02 Gerade Blocksignale', 'Wie Gerade, plus Blocksignal je Gleis 4 m hinter der Einfahrt. Alle 2-3 Stuecke einsetzen.', [(0, 0, '')])
+    # 02 straight + block signals
+    p = Piece('Rail 02 Straight Block Signals', 'Like Straight, plus one block signal per track 4 m behind the entry. Use every 2-3 pieces.', [(0, 0, '')])
     p.corridor_x(-2000, 2000, nodes_b=(-1600,), nodes_a=(1600,)); p.tube_x(-2000, 2000); corridor_deco(p, -2000, 2000); p.lamp(0, 0)
     p.signal(-1600, B_Y, [1, 0, 0], 'block'); p.signal(1600, A_Y, [-1, 0, 0], 'block')
     P.append(p)
-    # 3 Uebergang zur Kreuzung (Kreuzung liegt am +x-Ende)
-    p = Piece('Bahn 03 Uebergang Kreuzung', 'Direkt vor eine Kreuzung setzen (Kreuzung am +x-Ende, sonst um 180 Grad drehen): Pfadsignal fuer das einfahrende Gleis, Blocksignal fuer das ausfahrende.', [(0, 0, '')])
+    # 03 junction approach (the junction is at the +x end)
+    p = Piece('Rail 03 Junction Approach', 'Place directly in front of a junction (junction at the +x end, otherwise rotate by 180 degrees): path signal for the incoming track, block signal for the outgoing one.', [(0, 0, '')])
     p.corridor_x(-2000, 2000, nodes_b=(1600,), nodes_a=(1600,)); p.tube_x(-2000, 2000); corridor_deco(p, -2000, 2000); p.lamp(0, 0)
     p.signal(1600, B_Y, [1, 0, 0], 'path'); p.signal(1600, A_Y, [-1, 0, 0], 'block')
     P.append(p)
-    # 05 Kurve 90 Grad: Mittelpunkt (-4000, 4000) = Ecke der Boxen, Mittellinie R 60 m; Boxen: unten links (Einfahrt von -x),
-    #    unten rechts (Mitte), oben rechts (Ausfahrt nach +y). Die Box oben links bleibt frei.
-    p = Piece('Bahn 05 Kurve 90', 'Kurve 90 Grad (Mittellinie R 60 m, Gleise R 52/68 m) aus 3 Teilen: "unten links" (Korridor kommt von -x), "unten rechts", "oben rechts" (Korridor geht nach +y), "oben links" (nur Innenkante). Als Rechts- oder Linkskurve nutzbar (Korridor ist symmetrisch).',
-              [(-2000, -2000, 'unten links'), (2000, -2000, 'unten rechts'), (2000, 2000, 'oben rechts'), (-2000, 2000, 'oben links')])
+    # 05 curve 90 degrees: centre (-4000, 4000) = corner of the boxes, centre line R 60 m; boxes: bottom left (entry from -x),
+    #    bottom right (middle), top right (exit towards +y). The top left box only holds the inner edge.
+    p = Piece('Rail 05 Curve 90', 'Curve 90 degrees (centre line R 60 m, tracks R 52/68 m) made of 3 parts: "Bottom Left" (corridor comes from -x), "Bottom Right", "Top Right" (corridor leaves towards +y), plus "Top Left" (inner edge only). Usable as a right or left curve (the corridor is symmetrical).',
+              [(-2000, -2000, 'Bottom Left'), (2000, -2000, 'Bottom Right'), (2000, 2000, 'Top Right'), (-2000, 2000, 'Top Left')])
     Rm = 6000.0; ctr = [-4000.0, 4000.0]
     def polar(r, deg): a = math.radians(deg); return [ctr[0] + r * math.cos(a), ctr[1] + r * math.sin(a), TOP_Z]
-    p.track(arc(polar(Rm + 800, -90), [1, 0], +1, Rm + 800))          # B (aussen): +x -> +y
-    p.track(arc(polar(Rm - 800, 0), [0, -1], -1, Rm - 800))            # A (innen): -y -> -x
+    p.track(arc(polar(Rm + 800, -90), [1, 0], +1, Rm + 800))          # B (outer): +x -> +y
+    p.track(arc(polar(Rm - 800, 0), [0, -1], -1, Rm - 800))            # A (inner): -y -> -x
     tube = arc(polar(Rm, -90), [1, 0], +1, Rm, 'tube'); tube.P0[2] = tube.P1[2] = TUBE_Z; p.segs.append(tube)
     for x in frange(-4000 + 400, 4000, 800):
         for y in frange(-4000 + 400, 4000, 800):
             r = math.dist((x, y), ctr); deg = math.degrees(math.atan2(y - ctr[1], x - ctr[0]))
             if Rm - 1200 - 300 <= r <= Rm + 1200 + 300 and -93 <= deg <= 3: p.founds.append((x, y))
-    for deg in (-80, -45, -10):                                       # eine Laterne je Box, Tube-Richtung = Tangente
+    for deg in (-80, -45, -10):                                       # one street light per box, tube direction = tangent
         q = polar(Rm, deg); p.lamp(q[0], q[1], deg + 90)
-    for r in (Rm + 1200, Rm - 1200):                                  # Gelaender entlang der Bogenkanten, 4-m-Stuecke
+    for r in (Rm + 1200, Rm - 1200):                                  # railings along the arc edges, 4 m pieces
         n = int(r * math.pi / 2 / 400)
         for k in range(n):
             deg = -90 + (k + 0.5) * 90 / n; q = polar(r, deg); p.railings.append((q[0], q[1], deg))
     P.append(p)
-    # 10-12 T-Kreuzung (Abzweig nach -y), 3 Boxen: oben links (-2000,0), oben rechts (2000,0), unten (c,-4000)
+    # 10 T-junction (branch towards -y), 3 boxes: top left (-2000,0), top right (2000,0), bottom (c,-4000)
     c = 400.0; R = 2000.0
-    p = Piece('Bahn 10 T-Kreuzung', 'T-Kreuzung aus 3 Teilen: "oben links" + "oben rechts" nebeneinander, "unten" darunter (Abzweig-Korridor 4 m rechts der Mitte, an Fundamenten ausrichten). Abzweig zeigt nach -y. An alle 3 Enden "Uebergang Kreuzung" setzen. Tube laeuft als Bruecke ueber die Kurven, Abzweig-Tube endet blind.',
-              [(-2000, 0, 'oben links'), (2000, 0, 'oben rechts'), (c, -4000, 'unten')])
+    p = Piece('Rail 10 T-Junction', 'T-junction made of 3 parts: "Top Left" + "Top Right" side by side, "Bottom" below (branch corridor 4 m right of the centre, align with the foundations). The branch points towards -y. Put a "Junction Approach" at all 3 ends. The tube runs as a bridge over the curves, the branch tube ends blind.',
+              [(-2000, 0, 'Top Left'), (2000, 0, 'Top Right'), (c, -4000, 'Bottom')])
     xo, xi = c - 800, c + 800
     p.corridor_x(-4000, 4000, nodes_b=(xo - R, 0, xi + R), nodes_a=(xo + R, 0, xi - R))
     for x in frange(-4000 + 400, 4000, 800):
@@ -504,8 +505,8 @@ def pieces():
     p.railings_x(-4000, 4000, 1200, +1); p.beam(-4000, 1200, 4000, 1200)
     p.railings_y(-6000, -2000, c - 1200, -1); p.railings_y(-6000, -2000, c + 1200, +1); p.beam(c - 1200, -6000, c - 1200, -2000); p.beam(c + 1200, -6000, c + 1200, -2000)
     P.append(p)
-    # 20 X-Kreuzung
-    p = Piece('Bahn 20 X-Kreuzung', 'Flache Kreuzung zweier Korridore ohne Abbiegen. Beide Hypertubes als Bruecke (laengs 7 m, quer 8,5 m hoch). An alle 4 Enden "Uebergang Kreuzung" setzen.', [(0, 0, '')])
+    # 20 X-crossing
+    p = Piece('Rail 20 X-Crossing', 'Flat crossing of two corridors without turning. Both hypertubes as bridges (lengthwise 7 m, crosswise 8.5 m high). Put a "Junction Approach" at all 4 ends.', [(0, 0, '')])
     p.corridor_x(-2000, 2000)
     for x in (-800, 800):
         for y in (-1600, 1600): p.founds.append((x, y))
@@ -515,9 +516,9 @@ def pieces():
     for s_ in tube_profile('x', TUBE_Y, [(-2000, TUBE_Z), (-1900, TUBE_Z), (-1100, TOP_Z + BRIDGE_H), (1100, TOP_Z + BRIDGE_H), (1900, TUBE_Z), (2000, TUBE_Z)]): p.segs.append(s_)
     for s_ in tube_profile('y', TUBE_Y, [(-2000, TUBE_Z), (-1900, TUBE_Z), (-1100, TOP_Z + BRIDGE_H2), (1100, TOP_Z + BRIDGE_H2), (1900, TUBE_Z), (2000, TUBE_Z)]): p.segs.append(s_)
     P.append(p)
-    # 30/31 Bahnhof
-    for kind, nm, dsc in (('dock', 'Bahn 30 Bahnhof Fracht', 'Bahnhof mit 1 Frachtplattform auf eigenem Gleis (y=0), Fahrtrichtung +x: Zug kommt von -x, Plattform x=-16..0 m, Station x=0..16 m. Container-Seite -y. Blocksignale an beiden Enden. Strom anschliessen!'),
-                          ('dockliq', 'Bahn 31 Bahnhof Fluessig', 'Bahnhof mit 1 Fluessigkeits-Plattform auf eigenem Gleis (y=0), Fahrtrichtung +x. Rohr-Anschluesse -y. Blocksignale an beiden Enden. Strom anschliessen!')):
+    # 30/31 stations
+    for kind, nm, dsc in (('dock', 'Rail 30 Freight Station', 'Station with 1 freight platform on its own track (y=0), direction of travel +x: the train comes from -x, platform x=-16..0 m, station x=0..16 m. Container side -y. Block signals at both ends. Connect power!'),
+                          ('dockliq', 'Rail 31 Fluid Station', 'Station with 1 fluid platform on its own track (y=0), direction of travel +x. Pipe connections -y. Block signals at both ends. Connect power!')):
         p = Piece(nm, dsc, [(0, 0, '')])
         for x in frange(-2000 + 400, 2000, 800):
             for y in frange(-2000 + 400, 2000, 800): p.founds.append((x, y))
@@ -531,8 +532,8 @@ def pieces():
     return P
 
 if __name__ == '__main__':
-    H_tpl, _ = sbp.load(f'{SRC}/Asphalt + Schiene - Gerade.sbp')
+    H_tpl, _ = sbp.load(f'{SRC}/{TEMPLATE}.sbp')
     for p in pieces():
         for cx, cy, suffix in p.boxes:
             fname, n, cost = build_box(p, cx, cy, suffix, H_tpl)
-            print(f'{fname}: {n} Actors, Kosten {cost}')
+            print(f'{fname}: {n} actors, cost {cost}')

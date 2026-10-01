@@ -5,12 +5,12 @@ __pycache__/
 node_modules/
 frontend/dist/
 
-# Laufzeitdaten (Verlauf, Notiz-Passwort, geholte Saves) und Konfiguration
+# Runtime data (history, note password, fetched saves) and configuration
 data/
 saves/
 .env
 
-# lokale Arbeitsordner
+# local working folders
 extracted/
 mods/*.smod
 out/

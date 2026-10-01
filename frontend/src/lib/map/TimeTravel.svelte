@@ -1,5 +1,5 @@
 <script lang="ts">
-  // Zeitreise: Minutenbilder der letzten Stunden abspielen. Liefert das gewählte Bild per onframe an die Karte.
+  // Time travel: play back per-minute snapshots of the last hours. Passes the selected frame to the map via onframe.
   import { onMount, onDestroy } from 'svelte';
   import { clock } from '../fmt';
   import { t, locale } from '../i18n';
@@ -11,7 +11,7 @@
   let frames = $state<[number, Frame][]>([]);
   let idx = $state(0);
   let playing = $state(false);
-  let speed = $state(10);                  // Bilder je Sekunde
+  let speed = $state(10);                  // frames per second
   let loading = $state(true);
   let timer = 0;
 
@@ -36,7 +36,7 @@
   }
   onMount(load);
   onDestroy(() => { clearInterval(timer); onframe(null, null); });
-  // Lücken (Pausen, Dienst aus) auf der Zeitleiste markieren
+  // mark gaps (pauses, service down) on the timeline
   const gaps = $derived(frames.slice(1).map((f, i) => f[0] - frames[i][0] > 600 ? i + 1 : -1).filter(i => i > 0));
 </script>
 

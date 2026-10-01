@@ -1,10 +1,10 @@
-"""Client für FicsIt Remote Monitoring (FRM) auf dem Gameserver — optional.
+"""Client for FicsIt Remote Monitoring (FRM) on the game server — optional.
 
-Adresse per FRM_URL (z. B. http://gameserver:8080). Leer = aus: die Karte läuft dann nur aus dem Save.
+Address via FRM_URL (e.g. http://gameserver:8080). Empty = off: the map then runs from the save only.
 
-    python3 frm.py probe               # welche Endpunkte antworten?
-    python3 frm.py live                # Spieler/Fahrzeuge zusammengefasst
-    python3 frm.py getPlayer           # Rohantwort eines Endpunkts
+    python3 frm.py probe               # which endpoints respond?
+    python3 frm.py live                # players/vehicles summarised
+    python3 frm.py getPlayer           # raw response of an endpoint
 """
 import datetime, json, os, sys, urllib.error, urllib.request
 
@@ -60,7 +60,7 @@ def players():
 def trains():
     out = []
     for t in get('getTrains'):
-        out.append(dict(name=t.get('Name') or '(unbenannt)', pos=_xyz(t),
+        out.append(dict(name=t.get('Name') or '(unnamed)', pos=_xyz(t),
                         status=t.get('Status'), station=t.get('TrainStation'),
                         speed=round(abs(float(t.get('ForwardSpeed') or 0)) * 0.036, 1),   # cm/s -> km/h
                         derailed=bool(t.get('Derailed')),
@@ -75,7 +75,7 @@ def trains():
     return sorted(out, key=lambda t: t['name'])
 
 
-try:                                          # Fluid-Waren (für Wagenkapazität: 32 Stapel oder 1600 m³)
+try:                                          # fluid items (for wagon capacity: 32 stacks or 1600 m³)
     import json as _j
     ITEM_FLUID = {k: v.get('liquid') for k, v in _j.load(open(os.path.join(HERE, 'gamedata', 'data1.0.json')))['items'].items()}
 except Exception:
@@ -83,7 +83,7 @@ except Exception:
 
 
 def _train_cargo(t):
-    """Ladung aller Wagen zusammengefasst: {Ware: Menge} (Fluide in m³ wie im Spiel angezeigt)."""
+    """Cargo of all wagons combined: {item: amount} (fluids in m³ as shown in game)."""
     out = {}
     for v in t.get('Vehicles') or []:
         for i in v.get('Inventory') or []:
@@ -94,9 +94,9 @@ def _train_cargo(t):
 
 def trucks():
     out = []
-    rows = [(v, 'Truck') for v in get('getTruck')] + [(v, 'Traktor') for v in get('getTractor')]
-    for v, typ in rows:
-        out.append(dict(id=v.get('ID'), type=typ, name=v.get('Name') or '(unbenannt)', pos=_xyz(v),
+    rows = [(v, 'Truck') for v in get('getTruck')] + [(v, 'Tractor') for v in get('getTractor')]
+    for v, vtype in rows:
+        out.append(dict(id=v.get('ID'), type=vtype, name=v.get('Name') or '(unnamed)', pos=_xyz(v),
                         speed=round(abs(float(v.get('ForwardSpeed') or 0)) * 0.036, 1),
                         autopilot=bool(v.get('Autopilot')), fuel=bool(v.get('HasFuel')),
                         cargo=_first_item(v)))
@@ -104,7 +104,7 @@ def trucks():
 
 
 def station_status():
-    """Live-Zustand je Truckstation, Schlüssel = Objektname aus dem Save."""
+    """Live state per truck station, key = object name from the save."""
     out = {}
     for s in get('getTruckStation'):
         out[s['ID']] = dict(activity=s.get('LoadMode'), status=s.get('StationStatus'),
@@ -139,11 +139,11 @@ def probe():
         try:
             r = get(e, timeout=15)
             n = len(r) if isinstance(r, list) else 1
-            print('  %-18s OK   %s' % (e, ('%d Einträge' % n) if isinstance(r, list) else 'Objekt'))
+            print('  %-18s OK   %s' % (e, ('%d entries' % n) if isinstance(r, list) else 'object'))
             ok += 1
         except FrmError as err:
             print('  %-18s %s' % (e, err))
-    print('%d/%d Endpunkte antworten' % (ok, len(PROBE)))
+    print('%d/%d endpoints respond' % (ok, len(PROBE)))
     return 0 if ok == len(PROBE) else 1
 
 
@@ -153,8 +153,8 @@ if __name__ == '__main__':
         sys.exit(probe())
     if cmd == 'live':
         d = live()
-        print('%s · %d Spieler (%d online), %d Züge, %d LKW%s' % (
+        print('%s · %d players (%d online), %d trains, %d trucks%s' % (
             d['at'], len(d['players']), sum(p['online'] for p in d['players']),
-            len(d['trains']), len(d['trucks']), ' · pausiert' if d['paused'] else ''))
+            len(d['trains']), len(d['trucks']), ' · paused' if d['paused'] else ''))
     else:
         print(json.dumps(get(cmd), ensure_ascii=False)[:4000])
