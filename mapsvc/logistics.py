@@ -160,6 +160,6 @@ def schedule_check():
     # Bewertung: Kapazität < Bedarf → Engpass (sofern die Route die einzige Quelle ist, ist das echt; sonst Hinweis)
     for r in out:
         for f in r['flows']:
-            f['verdict'] = ('unbekannt' if not f['cap'] else 'engpass' if f['need'] and f['cap'] < f['need'] * .9
-                            else 'knapp' if f['need'] and f['cap'] < f['need'] * 1.1 else 'ok')
+            f['verdict'] = ('unknown' if not f['cap'] else 'bottleneck' if f['need'] and f['cap'] < f['need'] * .9
+                            else 'tight' if f['need'] and f['cap'] < f['need'] * 1.1 else 'ok')
     return out

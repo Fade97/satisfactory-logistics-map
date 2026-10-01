@@ -45,6 +45,23 @@ class Store:
         if 'status' not in cols:                      # Migration: Fabrikstatus seit 30.09.2026
             self.db.execute('ALTER TABLE factory_names ADD COLUMN status TEXT')
         self.lock = threading.RLock()
+        self._english_enums()
+
+    def _english_enums(self):
+        """Migration (2026-10-01): stored enum values switched from German to English."""
+        if self.kv_get('enums_en', False):
+            return
+        states = {'läuft': 'running', 'teilweise': 'partial', 'steht': 'stopped', 'pausiert': 'paused', 'aus': 'off'}
+        for de, en in states.items():
+            for tbl in ('series_min', 'series_hour', 'series_day'):
+                # INSERT OR REPLACE handles a key that already exists in English for the same minute
+                self.db.execute(f'INSERT OR REPLACE INTO {tbl} (key, t, v) SELECT ?, t, v FROM {tbl} WHERE key = ?', ('machines:' + en, 'machines:' + de))
+                self.db.execute(f'DELETE FROM {tbl} WHERE key = ?', ('machines:' + de,))
+        for de, en in {'aktiv': 'active', 'aufbau': 'building', 'puffer': 'buffer', 'stillgelegt': 'decommissioned'}.items():
+            self.db.execute('UPDATE factory_names SET status = ? WHERE status = ?', (en, de))
+        for de, en in {'geplant': 'planned', 'rohstoff': 'resource', 'treffpunkt': 'meetup', 'notiz': 'note'}.items():
+            self.db.execute('UPDATE pins SET cat = ? WHERE cat = ?', (en, de))
+        self.kv_put('enums_en', True)
 
     # ------------------------------------------------------------ Zeitreihen
     def put_series(self, t, values):
@@ -173,7 +190,7 @@ class Store:
     def factory_rename(self, key, name, author, status=None):
         """Name und/oder Status setzen; beides leer → Eintrag weg (Automatik gilt wieder)."""
         with self.lock:
-            if name or (status and status != 'aktiv'):
+            if name or (status and status != 'active'):
                 self.db.execute('INSERT OR REPLACE INTO factory_names (key, name, t, author, status) VALUES (?,?,?,?,?)',
                                 (key, name or None, int(time.time()), author, status))
             else:

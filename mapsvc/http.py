@@ -115,7 +115,7 @@ class H(http.server.BaseHTTPRequestHandler):
                     return self._json(DB.trails(int(time.time()) - storemod.TRAIL_KEEP))
                 if name == 'pins':
                     return self._json(DB.pins())
-                return self._json(dict(error='unbekannt'), 404)
+                return self._json(dict(error='unknown'), 404)
             return self._static(p)
         except BrokenPipeError:
             pass
@@ -137,7 +137,7 @@ class H(http.server.BaseHTTPRequestHandler):
                 if not self._auth():
                     return
                 b = self._body()
-                pin = dict(id=b.get('id'), author=str(b.get('author') or 'anonym')[:40], cat=str(b.get('cat') or 'note')[:20],
+                pin = dict(id=b.get('id'), author=str(b.get('author') or 'anonymous')[:40], cat=str(b.get('cat') or 'note')[:20],
                            color=str(b.get('color') or '#f5a524')[:9], text=str(b.get('text') or '')[:500],
                            shape=b.get('shape') if b.get('shape') in ('point', 'line', 'area') else 'point', geom=b.get('geom'))
                 g = pin['geom']
@@ -181,12 +181,12 @@ class H(http.server.BaseHTTPRequestHandler):
                 if not self._auth():
                     return
                 b = self._body()
-                st = b.get('status') if b.get('status') in ('aktiv', 'aufbau', 'stillgelegt', 'puffer') else None
+                st = b.get('status') if b.get('status') in ('active', 'building', 'decommissioned', 'buffer') else None
                 DB.factory_rename(str(b['key'])[:80], str(b.get('name') or '').strip()[:60], str(b.get('author') or '')[:40], st)
                 if ST.factory:
                     publish_factory(ST.factory, ST.factory_source, time.time())
                 return self._json(dict(ok=True))
-            self._json(dict(error='unbekannt'), 404)
+            self._json(dict(error='unknown'), 404)
         except Exception as e:
             log('POST', p, repr(e)[:200])
             self._json(dict(error='Invalid request'), 400)

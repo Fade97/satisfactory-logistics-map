@@ -31,12 +31,12 @@ def balance(machines, generators=()):
 
 
 def block_kind(m):
-    """Stehende Maschine einordnen: 'voll' = Ausgang voll (Puffer, gewollt), 'mangel' = Eingang fehlt."""
-    if m['state'] not in ('steht', 'teilweise'):
+    """Stehende Maschine einordnen: 'full' = Ausgang voll (Puffer, gewollt), 'starved' = Eingang fehlt."""
+    if m['state'] not in ('stopped', 'partial'):
         return None
     w = m.get('why') or ''
-    return ('voll' if w.startswith(('Output full', 'Ausgang voll')) else 'mangel' if w.startswith(('Missing', 'fehlt'))
-            else 'unklar')
+    return ('full' if w.startswith(('Output full', 'Ausgang voll')) else 'starved' if w.startswith(('Missing', 'fehlt'))
+            else 'unknown')
 
 
 def publish_factory(fac, source, t):
@@ -44,9 +44,9 @@ def publish_factory(fac, source, t):
     for m in fac['machines']:
         m['block'] = block_kind(m)
         m['nopower'] = m.get('circuit') in (None, -1) and m['cls'] not in ('Build_GeneratorFuel_C',)
-        if m['nopower'] and m['state'] in ('steht', 'teilweise', 'aus'):
+        if m['nopower'] and m['state'] in ('stopped', 'partial', 'off'):
             m['why'] = 'No power — not connected to a power grid'
-            m['block'] = 'mangel'
+            m['block'] = 'starved'
     # leere Netze (FRM meldet alle 75 Circuit-Gruppen) ausblenden
     fac['circuits'] = [c for c in fac['circuits'] if c.get('cap') or c.get('n_mach') or c.get('use')]
     if source == 'save':
@@ -76,7 +76,7 @@ def record(fac, t):
         if c.get('battery_cap'):
             v[k + 'battery'] = c['battery']
     st = collections.Counter(m['state'] for m in fac['machines'])
-    for s in ('läuft', 'teilweise', 'steht', 'pausiert', 'aus'):
+    for s in ('running', 'partial', 'stopped', 'paused', 'off'):
         v['machines:' + s] = st.get(s, 0)
     DB.put_series(t, v)
 
@@ -91,7 +91,7 @@ def clusters(machines, links=None, eps=60.0):
     Ohne `links` (nur FRM): Nähe (Single-Linkage, eps Meter) als Rückfall.
     Schlüssel = kleinste Maschinen-ID der Gruppe — bleibt stabil, damit Umbenennungen halten.
     """
-    pts = [m for m in machines if m['state'] != 'aus' or m.get('recipe')]
+    pts = [m for m in machines if m['state'] != 'off' or m.get('recipe')]
     idx = {m['id']: i for i, m in enumerate(pts)}
     parent = list(range(len(pts)))
 
@@ -161,11 +161,11 @@ def clusters(machines, links=None, eps=60.0):
         main = max(made, key=lambda k: (nmach.get(k, 0), made[k])) if made else (g[0].get('recipe') or g[0]['name'])
         xs, ys = [m['pos'][0] for m in g], [m['pos'][1] for m in g]
         st = collections.Counter(m['state'] for m in g)
-        blk = collections.Counter(m.get('block') for m in g if m['state'] == 'steht')
+        blk = collections.Counter(m.get('block') for m in g if m['state'] == 'stopped')
         auto = main + (' Mining' if all(m['recipe'] and m['recipe'].startswith(EXTRACT) for m in g) else ' Factory')
         nm = names.get(key)
         out.append(dict(key=key, name=(nm or {}).get('name') or auto, auto=auto, renamed=bool(nm and nm.get('name')),
-                        status=(nm or {}).get('status') or 'aktiv',
+                        status=(nm or {}).get('status') or 'active',
                         n=len(g), ids=[m['id'] for m in g], box=[min(xs), min(ys), max(xs), max(ys)],
                         center=[round(sum(xs) / len(xs)), round(sum(ys) / len(ys))],
                         states=dict(st), starved=blk.get('mangel', 0), full=blk.get('voll', 0), power=round(sum(m['power'] for m in g), 1),

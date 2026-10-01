@@ -23,26 +23,26 @@
   let showPrefs = $state(false);
 
   const NAV = [
-    ['overview', tr('Lage'), '◉'], ['map', tr('Karte'), '◧'], ['production', tr('Produktion'), '⚙'], ['power', tr('Strom'), 'ϟ'],
-    ['logistics', tr('Logistik'), '⇄'], ['history', tr('Verlauf'), '∿'], ['planner', tr('Rechner'), '∑'],
+    ['overview', tr('Overview'), '◉'], ['map', tr('Map'), '◧'], ['production', tr('Production'), '⚙'], ['power', tr('Power'), 'ϟ'],
+    ['logistics', tr('Logistics'), '⇄'], ['history', tr('History'), '∿'], ['planner', tr('Planner'), '∑'],
   ];
   let feedOpen = $state(false);
 
   // Quelle ehrlich anzeigen: live (FRM) oder Stand des letzten Saves
   const src = $derived.by(() => {
     const s = $status;
-    if (!$online) return { cls: 'bad', text: tr('offline · letzter Stand') };
-    if (!s) return { cls: '', text: tr('lädt …') };
-    if (s.frm.ok) return { cls: $live?.paused ? 'paused' : 'ok', text: $live?.paused ? tr('live · Spiel pausiert') : tr('live') };
-    return { cls: 'save', text: tr('Save {ago}', { ago: ago(s.save?.mtime) }) };
+    if (!$online) return { cls: 'bad', text: tr('offline · last known state') };
+    if (!s) return { cls: '', text: tr('loading …') };
+    if (s.frm.ok) return { cls: $live?.paused ? 'paused' : 'ok', text: $live?.paused ? tr('live · game paused') : tr('live') };
+    return { cls: 'save', text: tr('save {ago}', { ago: ago(s.save?.mtime) }) };
   });
-  const srcTitle = $derived(!$status ? '' : $status.frm.ok ? tr('Live-Daten vom Server, alle 5 Sekunden')
-    : [$status.frm.configured === false ? tr('Ohne Live-Mod (FicsIt Remote Monitoring):')
-        : tr('Live-Daten (FicsIt Remote Monitoring) fehlen seit {ago}.', { ago: ago($status.frm.since) }),
-      tr('Positionen und Maschinen stammen aus dem letzten Save ({file}).', { file: $status.save?.file || '?' }),
-      $status.save_error ? tr('Letzter Abruf fehlgeschlagen: {error}', { error: lxr($status.save_error) }) : ''].filter(Boolean).join(' '));
+  const srcTitle = $derived(!$status ? '' : $status.frm.ok ? tr('Live data from the server, every 5 seconds')
+    : [$status.frm.configured === false ? tr('Without the live mod (FicsIt Remote Monitoring):')
+        : tr('No live data (FicsIt Remote Monitoring), last seen {ago}.', { ago: ago($status.frm.since) }),
+      tr('Positions and machines come from the last save ({file}).', { file: $status.save?.file || '?' }),
+      $status.save_error ? tr('Last fetch failed: {error}', { error: lxr($status.save_error) }) : ''].filter(Boolean).join(' '));
   const title = $derived($status?.title || 'Satisfactory');
-  $effect(() => { document.title = title + ' · ' + $t('Logistikkarte'); });
+  $effect(() => { document.title = title + ' · ' + $t('Logistics Map'); });
   // Sprache der Oberfläche: erst speichern (prefs schreibt sofort in localStorage), dann neu laden
   function setUi(v: string) {
     prefs.update(p => ({ ...p, ui: v === 'de' ? 'de' : 'en' }));
@@ -55,7 +55,7 @@
 {:else}
 <div class="shell">
   <header>
-    <a class="brand" href="#/overview" aria-label={$t('Zur Lage')}>
+    <a class="brand" href="#/overview" aria-label={$t('Go to overview')}>
       <svg viewBox="0 0 256 256" width="24" height="24" aria-hidden="true"><path fill="var(--ficsit)" fill-rule="evenodd" d="M16 16H196L240 60V240H16Z M56 240V141.72L121.36 76.35A40 40 0 1 1 149.65 104.64L96 158.28V240Z"/><circle cx="160" cy="66" r="17" fill="var(--ficsit)"/></svg>
       <span>{title}</span>
     </a>
@@ -65,19 +65,19 @@
       {/each}
     </nav>
     <span class="spacer"></span>
-    {#if $live?.session}<span class="clock hide-m" title={$t('Spieltag {day}', { day: $live.session.day })}>{$live.session.is_day ? '☀' : '☾'} {$live.session.clock}</span>{/if}
+    {#if $live?.session}<span class="clock hide-m" title={$t('Game day {day}', { day: $live.session.day })}>{$live.session.is_day ? '☀' : '☾'} {$live.session.clock}</span>{/if}
     <span class="src {src.cls}" title={srcTitle}><i></i>{src.text}</span>
-    <button class="hbtn" class:on={feedOpen} onclick={() => (feedOpen = !feedOpen)} aria-label={$t('Ereignisse')} title={$t('Ereignisse')}>≡</button>
-    <button class="hbtn me" class:on={showPrefs} onclick={() => (showPrefs = !showPrefs)} title={$t('Meine Ansicht')} aria-label={$t('Meine Ansicht')}>{$prefs.me ? $prefs.me.slice(0, 1).toUpperCase() : '☺'}</button>
-    <a class="hbtn hide-m" href="#/kiosk" title={$t('Kiosk-Ansicht für einen zweiten Bildschirm')} aria-label={$t('Kiosk')}>⛶</a>
+    <button class="hbtn" class:on={feedOpen} onclick={() => (feedOpen = !feedOpen)} aria-label={$t('Events')} title={$t('Events')}>≡</button>
+    <button class="hbtn me" class:on={showPrefs} onclick={() => (showPrefs = !showPrefs)} title={$t('My view')} aria-label={$t('My view')}>{$prefs.me ? $prefs.me.slice(0, 1).toUpperCase() : '☺'}</button>
+    <a class="hbtn hide-m" href="#/kiosk" title={$t('Kiosk view for a second screen')} aria-label={$t('Kiosk')}>⛶</a>
   </header>
   <main>
     {#if $status && !$status.save}
       <div class="setup panel">
-        <h2>{$t('Noch kein Spielstand')}</h2>
+        <h2>{$t('No save yet')}</h2>
         {#if $status.save_error}<p>{$lx($status.save_error)}</p>
-        {:else}<p>{$t('Der Dienst holt gerade das erste Save …')}</p>{/if}
-        <p class="muted small">{$t('Einstellung über')} <code>SAVE_SOURCE</code> {$t('(Ordner, SFTP, FTP oder Server-API) — siehe README. Der nächste Versuch läuft automatisch in einer Minute.')}</p>
+        {:else}<p>{$t('The service is fetching the first save …')}</p>{/if}
+        <p class="muted small">{$t('Set via')} <code>SAVE_SOURCE</code> {$t('(folder, SFTP, FTP or server API) — see the README. The next attempt runs automatically in one minute.')}</p>
       </div>
     {/if}
     {#if $route.page === 'production'}<Production />
@@ -89,27 +89,27 @@
     {:else}<MapPage />{/if}
     {#if showPrefs}
       <aside class="prefs panel">
-        <h2>{$t('Meine Ansicht')}</h2>
-        <p class="muted small">{$t('Gilt nur in diesem Browser.')}</p>
-        <label>{$t('Ich bin')}
+        <h2>{$t('My view')}</h2>
+        <p class="muted small">{$t('Only applies to this browser.')}</p>
+        <label>{$t('I am')}
           <select class="field" bind:value={$prefs.me}>
-            <option value="">{$t('— niemand —')}</option>
+            <option value="">{$t('— nobody —')}</option>
             {#each ($live?.players || []) as p}<option value={p.name}>{p.name}</option>{/each}
           </select></label>
-        <label class="ck"><input type="checkbox" bind:checked={$prefs.followMe} disabled={!$prefs.me} /> {$t('Karte folgt mir, wenn ich online bin')}</label>
-        <label>{$t('Startseite')}
+        <label class="ck"><input type="checkbox" bind:checked={$prefs.followMe} disabled={!$prefs.me} /> {$t('Map follows me while I’m online')}</label>
+        <label>{$t('Start page')}
           <select class="field" bind:value={$prefs.start}>
-            <option value="overview">{$t('Lage')}</option><option value="map">{$t('Karte (letzte Position)')}</option><option value="production">{$t('Produktion')}</option>
+            <option value="overview">{$t('Overview')}</option><option value="map">{$t('Map (last position)')}</option><option value="production">{$t('Production')}</option>
           </select></label>
-        <label>{$t('Sprache')}
+        <label>{$t('Language')}
           <select class="field" value={$prefs.ui} onchange={e => setUi(e.currentTarget.value)}>
             <option value="en">English</option><option value="de">Deutsch</option>
           </select></label>
-        <label>{$t('Warennamen')}
+        <label>{$t('Item names')}
           <select class="field" bind:value={$prefs.lang}>
-            <option value="en">{$t('Englisch (wie im Spiel)')}</option><option value="de">{$t('Deutsch')}</option>
+            <option value="en">{$t('English (as in the game)')}</option><option value="de">{$t('German')}</option>
           </select></label>
-        <button class="btn" onclick={() => (showPrefs = false)}>{$t('Fertig')}</button>
+        <button class="btn" onclick={() => (showPrefs = false)}>{$t('Done')}</button>
       </aside>
     {/if}
     {#if feedOpen}

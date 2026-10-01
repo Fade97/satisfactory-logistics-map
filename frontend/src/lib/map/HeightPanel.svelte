@@ -25,22 +25,22 @@
 </script>
 
       <div class="zbar panel">
-  <div class="zh"><b>{$t('Höhe')}</b><span class="muted">{zRange ? zRange[0] + ' … ' + zRange[1] + ' m' : $t('alle Ebenen')}</span>
-    <button class="x" onclick={() => { zRange = null; onclose(); }} aria-label={$t('Höhenfilter beenden')}>✕</button></div>
+  <div class="zh"><b>{$t('Height')}</b><span class="muted">{zRange ? zRange[0] + ' … ' + zRange[1] + ' m' : $t('all floors')}</span>
+    <button class="x" onclick={() => { zRange = null; onclose(); }} aria-label={$t('Close height filter')}>✕</button></div>
   <div class="floors">
-    <button class:on={!zRange} onclick={() => (zRange = null)}>{$t('Alle')}</button>
+    <button class:on={!zRange} onclick={() => (zRange = null)}>{$t('All')}</button>
     {#each floors as f}
       <button class:on={zRange && zRange[0] === f.lo && zRange[1] === f.hi} onclick={() => (zRange = [f.lo, f.hi])}
-        title={$t('{n} Maschinen', { n: f.n })}>{f.lo === f.hi ? f.lo : f.lo + '–' + f.hi} m</button>
+        title={$t('{n} machines', { n: f.n })}>{f.lo === f.hi ? f.lo : f.lo + '–' + f.hi} m</button>
     {/each}
   </div>
   <div class="range">
-    <input type="range" min={zBounds[0]} max={zBounds[1]} step="2" value={zRange?.[0] ?? zBounds[0]} aria-label={$t('Höhe von')}
+    <input type="range" min={zBounds[0]} max={zBounds[1]} step="2" value={zRange?.[0] ?? zBounds[0]} aria-label={$t('Height from')}
       oninput={e => { const v = +(e.target as HTMLInputElement).value; zRange = [Math.min(v, zRange?.[1] ?? zBounds[1]), zRange?.[1] ?? zBounds[1]]; }} />
-    <input type="range" min={zBounds[0]} max={zBounds[1]} step="2" value={zRange?.[1] ?? zBounds[1]} aria-label={$t('Höhe bis')}
+    <input type="range" min={zBounds[0]} max={zBounds[1]} step="2" value={zRange?.[1] ?? zBounds[1]} aria-label={$t('Height to')}
       oninput={e => { const v = +(e.target as HTMLInputElement).value; zRange = [zRange?.[0] ?? zBounds[0], Math.max(v, zRange?.[0] ?? zBounds[0])]; }} />
   </div>
-  <p class="muted">{$t('Blendet Maschinen, Generatoren und Stationen außerhalb aus. Bänder und Gleise bleiben sichtbar.')}</p>
+  <p class="muted">{$t('Hides machines, generators and stations outside this range. Belts and rails stay visible.')}</p>
 </div>
 
 <style>

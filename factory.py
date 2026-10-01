@@ -130,14 +130,14 @@ def machine_state(d, rec, cls):
     tot = last_d + cur_d
     pct = round(100 * (last_p + cur_p) / tot) if tot > 1 else 0
     if cls not in EXTRACTORS and not rec:
-        return 'aus', 0
+        return 'off', 0
     if d.get('mIsProductionPaused'):
-        return 'pausiert', pct
+        return 'paused', pct
     if pct >= 95:
-        return 'läuft', pct
+        return 'running', pct
     if pct > 5:
-        return 'teilweise', pct
-    return 'steht', pct
+        return 'partial', pct
+    return 'stopped', pct
 
 
 def _reason(S, name, d, rec):
@@ -206,7 +206,7 @@ def machines(S, circ, who):
                 m['alt'] = bool(r.get('alternate'))
                 m['out'] = [dict(item=ITEMS[p['item']]['name'], max=round(p['amount'] / liq(p['item']) * k, 2)) for p in r['products']]
                 m['inp'] = [dict(item=ITEMS[i['item']]['name'], max=round(i['amount'] / liq(i['item']) * k, 2)) for i in r['ingredients']]
-                if state in ('steht', 'teilweise'):
+                if state in ('stopped', 'partial'):
                     m['why'] = _reason(S, n, d, rec)
             for x in m['out'] + m['inp']:
                 x['rate'] = round(x['max'] * m['pct'] / 100.0, 2)
@@ -353,7 +353,7 @@ def circuits(mach, gens, bats):
         c = C[m['circuit']]
         c['n_mach'] += 1
         c['max_use'] += m['power']
-        c['use'] += m['power'] * (m['pct'] / 100.0 if m['state'] != 'aus' else 0)
+        c['use'] += m['power'] * (m['pct'] / 100.0 if m['state'] != 'off' else 0)
     for g in gens:
         c = C[g['circuit']]
         c['n_gen'] += 1

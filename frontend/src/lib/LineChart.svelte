@@ -65,14 +65,14 @@
 
 <div class="chart" bind:clientWidth={w}>
   {#if !all.length}
-    <div class="empty">{$t('Noch keine Werte — der Verlauf füllt sich minütlich, sobald Daten ankommen.')}</div>
+    <div class="empty">{$t('No values yet — the chart fills in every minute once data arrives.')}</div>
   {:else}
     {#if series.length > 1}
       <div class="legend">
         {#each series as s, i}<span><i style="background:{color(s, i)}"></i>{s.label}</span>{/each}
       </div>
     {/if}
-    <svg width={w} {height} role="img" aria-label={$t('Verlauf')} onpointermove={move} onpointerleave={() => (hoverX = null)}>
+    <svg width={w} {height} role="img" aria-label={$t('History')} onpointermove={move} onpointerleave={() => (hoverX = null)}>
       {#each ticks as v}
         <line x1={pad.l} x2={w - pad.r} y1={Y(v)} y2={Y(v)} class="grid" />
         <text x={pad.l - 6} y={Y(v) + 4} class="ax" text-anchor="end">{fmtNum(v)}</text>

@@ -9,12 +9,12 @@ export const C = {
   ok: '#4cc38a', warn: '#e2b93b', bad: '#e5484d', idle: '#6f6b64',
   player: '#f5f2ea', train: '#5b9bd5', truck: '#f59a23',
 };
-export const MODE_DE: Record<string, string> = { load: 'Beladen', unload: 'Entladen', mixed: 'gemischt', none: 'ohne Plattform' };
+export const MODE_LABEL: Record<string, string> = { load: 'Load', unload: 'Unload', mixed: 'mixed', none: 'no platform' };
 /** Farbe einer Maschine: stehend wegen vollem Ausgang = gewollter Puffer → grau, nur Mangel ist rot. */
 export const machineColor = (m: { state: string; block?: string | null }) =>
-  m.state === 'steht' && m.block === 'voll' ? '#8a857c' : STATE_COLOR[m.state] || '#6f6b64';
+  m.state === 'stopped' && m.block === 'full' ? '#8a857c' : STATE_COLOR[m.state] || '#6f6b64';
 export const STATE_COLOR: Record<string, string> = {
-  'läuft': C.ok, 'teilweise': C.warn, 'steht': C.bad, 'pausiert': '#8f8a82', 'aus': '#4a4d52',
+  'running': C.ok, 'partial': C.warn, 'stopped': C.bad, 'paused': '#8f8a82', 'off': '#4a4d52',
 };
 
 import { locale, tr } from './i18n';
@@ -25,8 +25,8 @@ const nf0 = new Intl.NumberFormat(locale(), { maximumFractionDigits: 0 });
 export function fmtNum(v: number | null | undefined): string {
   if (v === null || v === undefined || Number.isNaN(v)) return '–';
   const a = Math.abs(v);
-  if (a >= 1e6) return nf1.format(v / 1e6) + tr(' Mio');
-  if (a >= 10000) return nf1.format(v / 1000) + tr(' Tsd');
+  if (a >= 1e6) return nf1.format(v / 1e6) + tr('M');
+  if (a >= 10000) return nf1.format(v / 1000) + tr('k');
   if (a >= 100) return nf0.format(v);
   return nf1.format(v);
 }
@@ -35,15 +35,15 @@ export function ago(t: number | string | null | undefined): string {
   if (!t) return '–';
   const ms = typeof t === 'number' ? t * 1000 : new Date(t).getTime();
   const s = Math.max(0, (Date.now() - ms) / 1000);
-  if (s < 60) return tr('gerade eben');
-  if (s < 3600) return tr('vor {n} min', { n: Math.round(s / 60) });
-  if (s < 86400) return tr('vor {n} h', { n: Math.round(s / 3600) });
-  return tr('vor {n} Tagen', { n: Math.round(s / 86400) });
+  if (s < 60) return tr('just now');
+  if (s < 3600) return tr('{n} min ago', { n: Math.round(s / 60) });
+  if (s < 86400) return tr('{n} h ago', { n: Math.round(s / 3600) });
+  return tr('{n} days ago', { n: Math.round(s / 86400) });
 }
 export function dur(min: number | null | undefined): string {
   if (min === null || min === undefined) return '–';
   if (min < 60) return Math.round(min) + ' min';
   if (min < 1440) return nf1.format(min / 60) + ' h';
-  return tr('{n} Tage', { n: nf1.format(min / 1440) });
+  return tr('{n} days', { n: nf1.format(min / 1440) });
 }
 export const clock = (t: number) => new Date(t * 1000).toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' });

@@ -66,8 +66,8 @@ def build():
     for m in frm.get('getFactory'):
         prod = m.get('production') or []
         ing = m.get('ingredients') or []
-        state = ('aus' if not m.get('IsConfigured') else 'pausiert' if m.get('IsPaused')
-                 else 'läuft' if m.get('IsProducing') else 'steht')
+        state = ('off' if not m.get('IsConfigured') else 'paused' if m.get('IsPaused')
+                 else 'running' if m.get('IsProducing') else 'stopped')
         machines.append(dict(
             name=m.get('Name'), pos=_xy(m), recipe=m.get('Recipe') or None, state=state,
             pct=round(float(m.get('Productivity') or 0)),

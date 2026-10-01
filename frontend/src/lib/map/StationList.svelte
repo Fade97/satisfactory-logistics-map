@@ -1,7 +1,7 @@
 <script lang="ts">
   // Seitenleiste der Karte: Stationen/Waren durchsuchen, Filter-Chips, Spieler online.
   import { live, stations } from '../api';
-  import { C, MODE_DE } from '../fmt';
+  import { C, MODE_LABEL } from '../fmt';
   import { tn, both } from '../names';
   import { matches, fuzzy } from '../fuzzy';
   import { t, locale } from '../i18n';
@@ -39,14 +39,14 @@
 
   <aside class="side panel" class:open={open}>
     <div class="tabs">
-      <button class:on={tab === 'stations'} onclick={() => (tab = 'stations')}>{$t('Stationen')} <span class="muted">{allSt.length}</span></button>
-      <button class:on={tab === 'items'} onclick={() => (tab = 'items')}>{$t('Waren')} <span class="muted">{items.length}</span></button>
+      <button class:on={tab === 'stations'} onclick={() => (tab = 'stations')}>{$t('Stations')} <span class="muted">{allSt.length}</span></button>
+      <button class:on={tab === 'items'} onclick={() => (tab = 'items')}>{$t('Items')} <span class="muted">{items.length}</span></button>
     </div>
     <div class="srch">
-      <input id="q" class="field" type="search" bind:value={q} placeholder={$t('Station, Ware oder Maschine suchen')} autocomplete="off" />
+      <input id="q" class="field" type="search" bind:value={q} placeholder={$t('Search stations, items or machines')} autocomplete="off" />
     </div>
     <div class="chips">
-      {#each [['truck', $t('Truck')], ['train', $t('Zug')], ['load', $t('Beladen')], ['unload', $t('Entladen')]] as [k, l]}
+      {#each [['truck', $t('Truck')], ['train', $t('Train')], ['load', $t('Load')], ['unload', $t('Unload')]] as [k, l]}
         <button class="chip" class:on={F[k as keyof typeof F]} onclick={() => (F[k as keyof typeof F] = !F[k as keyof typeof F])}>
           {#if k === 'load' || k === 'unload'}<span class="dot" style="background:{C[k]}"></span>{/if}{l}</button>
       {/each}
@@ -55,7 +55,7 @@
       <div class="players">
         {#each onlinePlayers as p}
           <button class="pl" onclick={() => onpick('player:' + p.name)}><span class="pdot"></span>{p.name}
-            <span class="muted">{p.online === null ? $t('Save') : p.vehicle || (p.speed && p.speed > 1 ? $t('unterwegs') : $t('online'))}</span></button>
+            <span class="muted">{p.online === null ? $t('Save file') : p.vehicle || (p.speed && p.speed > 1 ? $t('on the move') : $t('online'))}</span></button>
         {/each}
       </div>
     {/if}
@@ -65,17 +65,17 @@
           {@const k = 'station:' + s.id.split('.').pop()}
           <button class="row" class:sel={selKey === k} onclick={() => { onpick(k); open = false; }}>
             <span class="mk {s.kind}" style="background:{C[s.mode]}"></span>
-            <span class="tx"><span class="nm">{s.name}</span><span class="sub">{$t(MODE_DE[s.mode])}{s.items.length ? ' · ' + s.items.map(i => $tn(i.item)).join(', ') : ''}</span></span>
-            {#if s.kind === 'truck' && s.fill != null}<span class="fl" title={$t('{n} % voll', { n: Math.round(s.fill * 100) })}><i style="height:{s.fill * 100}%;background:{s.fill > .9 ? C.bad : '#c3bfb7'}"></i></span>{/if}
+            <span class="tx"><span class="nm">{s.name}</span><span class="sub">{$t(MODE_LABEL[s.mode])}{s.items.length ? ' · ' + s.items.map(i => $tn(i.item)).join(', ') : ''}</span></span>
+            {#if s.kind === 'truck' && s.fill != null}<span class="fl" title={$t('{n} % full', { n: Math.round(s.fill * 100) })}><i style="height:{s.fill * 100}%;background:{s.fill > .9 ? C.bad : '#c3bfb7'}"></i></span>{/if}
           </button>
-        {:else}<div class="none">{$t('Keine Station passt zu Suche und Filtern.')}</div>{/each}
+        {:else}<div class="none">{$t('No station matches the search and filters.')}</div>{/each}
       {:else}
         {#each items as i (i.item)}
           <button class="row" class:sel={q === i.item} onclick={() => pickItem(i.item)}>
             <span class="mk" style="background:{i.load && i.unload ? C.mixed : i.unload ? C.unload : C.load}"></span>
-            <span class="tx"><span class="nm">{$tn(i.item)}</span><span class="sub">{$t('{a} × beladen · {b} × entladen', { a: i.load, b: i.unload })}</span></span>
+            <span class="tx"><span class="nm">{$tn(i.item)}</span><span class="sub">{$t('{a} × loading · {b} × unloading', { a: i.load, b: i.unload })}</span></span>
           </button>
-        {:else}<div class="none">{$t('Keine Ware passt zur Suche.')}</div>{/each}
+        {:else}<div class="none">{$t('No item matches the search.')}</div>{/each}
       {/if}
     </div>
   </aside>

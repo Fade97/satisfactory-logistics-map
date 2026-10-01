@@ -6,7 +6,7 @@
 
   let { onclose = () => {}, compact = false }: { onclose?: () => void; compact?: boolean } = $props();
   const KINDS: Record<string, string> = {
-    '': tr('Alle'), stoerung: tr('Störungen'), versorgung: tr('Versorgung'), player: tr('Spieler'), fortschritt: tr('Fortschritt'),
+    '': tr('All'), stoerung: tr('Issues'), versorgung: tr('Supply'), player: tr('Player'), fortschritt: tr('Progress'),
   };
   const GROUP: Record<string, string> = {
     fuse: 'stoerung', derail: 'stoerung', nofuel: 'stoerung', stall: 'stoerung', system: 'stoerung',
@@ -18,7 +18,7 @@
 
   function day(t: number) {
     const d = new Date(t * 1000), now = new Date();
-    return d.toDateString() === now.toDateString() ? tr('Heute') : d.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' });
+    return d.toDateString() === now.toDateString() ? tr('Today') : d.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' });
   }
   function open(e: any) {
     if (e.x === null) return;
@@ -30,8 +30,8 @@
 <div class="wrap" class:compact>
   {#if !compact}
     <div class="head">
-      <h2>{$t('Ereignisse')}</h2>
-      <button class="x" onclick={onclose} aria-label={$t('Schließen')}>✕</button>
+      <h2>{$t('Events')}</h2>
+      <button class="x" onclick={onclose} aria-label={$t('Close')}>✕</button>
     </div>
     <div class="filters">
       {#each Object.entries(KINDS) as [k, l]}
@@ -50,7 +50,7 @@
         </button>
       </li>
     {:else}
-      <li class="none">{$t('Keine Ereignisse. Hier erscheinen Störungen, Versorgungslücken, Spieler und Baufortschritt, sobald sie passieren.')}</li>
+      <li class="none">{$t('No events. Issues, supply gaps, players and build progress show up here as they happen.')}</li>
     {/each}
   </ol>
 </div>

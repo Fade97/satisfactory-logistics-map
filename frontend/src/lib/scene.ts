@@ -6,15 +6,15 @@ import { tr, lxr } from './i18n';
 
 // Anzeigenamen per tr(): ein Sprachwechsel lädt die Seite neu, daher reicht die Übersetzung beim Laden
 export const LAYERS: [string, string, boolean][] = [
-  ['mapimg', tr('Spielkarte'), true], ['detail', tr('Fundamente & Wände (ab Zoom)'), true], ['rails', tr('Gleisnetz'), true], ['pipes', tr('Rohrleitungen'), false],
-  ['belts', tr('Förderbänder'), false], ['power', tr('Stromleitungen'), false],
-  ['stations', tr('Stationen'), true], ['routes', tr('Zugrouten'), true], ['vehicles', tr('Fahrzeuge'), true],
-  ['players', tr('Spieler'), true], ['trails', tr('Spielerspuren (2 h)'), true],
-  ['factories', tr('Fabriken (Umriss nach Zustand)'), true], ['heat', tr('Heatmap: Materialmangel'), false],
-  ['machines', tr('Maschinen'), false], ['starved', tr('Maschinen mit Materialmangel'), false],
-  ['generators', tr('Generatoren'), false], ['nopower', tr('Ohne Stromanschluss'), true], ['nodes', tr('Rohstoffknoten'), false], ['pins', tr('Notizen'), true],
-  ['c_somersloop', tr('Somersloops (fehlend)'), false], ['c_mercer', tr('Mercer Spheres (fehlend)'), false],
-  ['c_slug', tr('Power Slugs (fehlend)'), false], ['c_droppod', tr('Absturzstellen (offen)'), false],
+  ['mapimg', tr('Game map'), true], ['detail', tr('Foundations & walls (when zoomed in)'), true], ['rails', tr('Rail network'), true], ['pipes', tr('Pipes'), false],
+  ['belts', tr('Conveyor belts'), false], ['power', tr('Power lines'), false],
+  ['stations', tr('Stations'), true], ['routes', tr('Train routes'), true], ['vehicles', tr('Vehicles'), true],
+  ['players', tr('Player'), true], ['trails', tr('Player trails (2 h)'), true],
+  ['factories', tr('Factories (outline by status)'), true], ['heat', tr('Heatmap: missing input'), false],
+  ['machines', tr('Machines'), false], ['starved', tr('Machines with missing input'), false],
+  ['generators', tr('Generators'), false], ['nopower', tr('Not connected to power'), true], ['nodes', tr('Resource nodes'), false], ['pins', tr('Notes'), true],
+  ['c_somersloop', tr('Somersloops (not collected)'), false], ['c_mercer', tr('Mercer Spheres (not collected)'), false],
+  ['c_slug', tr('Power Slugs (not collected)'), false], ['c_droppod', tr('Crash sites (not looted)'), false],
 ];
 
 export const CIRCUIT_COLORS = ['#e2b93b', '#b58be8', '#4cc38a', '#e07b9b', '#6cc4d8', '#c9a26b'];
@@ -54,10 +54,10 @@ export function liveObjs(lv: Live): MapObj[] {
 export function factoryObjs(f: Factory): MapObj[] {
   const out: MapObj[] = [];
   for (const m of f.machines) {
-    const starved = m.state === 'steht' && m.block !== 'voll';
+    const starved = m.state === 'stopped' && m.block !== 'full';
     if (m.nopower) {                                  // eigene, standardmäßig sichtbare Ebene: sofort auffällig
       out.push({ kind: 'machine', key: 'machine:' + m.id, x: m.pos[0], y: m.pos[1], z: m.z, r: 4.5, shape: 'diamond',
-        color: '#e5484d', ring: '#f5f2ea', label: tr('{name} ohne Strom', { name: m.name }), prio: 3, layer: 'nopower', data: m });
+        color: '#e5484d', ring: '#f5f2ea', label: tr('{name} without power', { name: m.name }), prio: 3, layer: 'nopower', data: m });
       continue;
     }
     out.push({
@@ -82,7 +82,7 @@ export function nodeObjs(ns: Node[]): MapObj[] {
   return ns.map(n => ({
     kind: 'node', key: 'node:' + n.id, x: n.pos[0], y: n.pos[1], r: 4, shape: 'tri' as const,
     color: n.used ? '#6f6b64' : P[n.purity || ''] || '#9a968e', ring: n.used ? undefined : '#0c0d0e',
-    label: (n.item || '?') + (n.purity ? ' · ' + tr(({ pure: 'rein', normal: 'normal', impure: 'unrein' } as Record<string, string>)[n.purity]) : ''),
+    label: (n.item || '?') + (n.purity ? ' · ' + tr(n.purity) : ''),
     prio: 1, layer: 'nodes', data: n,
   }));
 }
@@ -115,7 +115,7 @@ export function applyGeo(v: MapView, g: Geo | null, lines: number[][] | null, st
 
 /** Fabrik-Umriss: grün = läuft, gelb = teils Mangel, rot = viel Mangel; volle Ausgänge zählen nicht als Problem. */
 export function factoryColor(f: { n: number; starved: number; states: Record<string, number> }) {
-  const bad = f.starved / Math.max(1, f.n), run = ((f.states['läuft'] || 0) + (f.states['teilweise'] || 0)) / Math.max(1, f.n);
+  const bad = f.starved / Math.max(1, f.n), run = ((f.states['running'] || 0) + (f.states['partial'] || 0)) / Math.max(1, f.n);
   return bad > .3 ? '#e5484d' : bad > .08 ? '#e2b93b' : run > .2 ? '#4cc38a' : '#8a857c';
 }
 

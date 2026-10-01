@@ -8,7 +8,7 @@
   import { tn, both } from './names';
   import { t, tr } from './i18n';
 
-  let { value = $bindable(''), items = [], placeholder = tr('Ware suchen'), onpick = (_: string) => {}, clearOnPick = false }:
+  let { value = $bindable(''), items = [], placeholder = tr('Search items'), onpick = (_: string) => {}, clearOnPick = false }:
     { value?: string; items: string[]; placeholder?: string; onpick?: (v: string) => void; clearOnPick?: boolean } = $props();
 
   let q = $state($tn(value));
@@ -71,7 +71,7 @@
       {#each list as it, i}
         <li role="option" aria-selected={i === hi}><button type="button" class:hi={i === hi} onmousedown={e => { e.preventDefault(); pick(it); }} onmouseenter={() => (hi = i)}>{$tn(it)}</button></li>
       {:else}
-        <li class="none">{$t('Keine Ware passt zu „{q}“', { q })}</li>
+        <li class="none">{$t('No item matches “{q}”', { q })}</li>
       {/each}
     </ul>
   {/if}

@@ -81,7 +81,7 @@ def factory_events(fac, t):
     _edge('nopower', 'all', bool(nop), 'warn', '%d machines not connected to power' % len(nop),
           *(nop[0]['pos'] if nop else (None, None)))
     for f in fac['factories']:
-        if f.get('status') != 'aktiv':          # im Aufbau / stillgelegt / Puffer: keine Warnungen
+        if f.get('status') != 'active':          # im Aufbau / stillgelegt / Puffer: keine Warnungen
             _edge('stall', f['key'], False, 'warn', '')
             continue
         bad = f['starved'] / max(1, f['n'])
@@ -161,7 +161,7 @@ def storage_events(st):
     """„Lager voll“: nur Container, an denen eine Fabrik hängt, die dadurch staut (Maschinen mit vollem Ausgang
     in 60 m) — ein volles Endlager ohne Zulauf ist gewollt. Eine Meldung je Container, Hysterese über _edge."""
     fac = ST.factory or {}
-    full_out = [m for m in fac.get('machines', []) if m.get('block') == 'voll']
+    full_out = [m for m in fac.get('machines', []) if m.get('block') == 'full']
     for c in st:
         if c['fill'] is None or 'Tank' in c['cls']:
             continue

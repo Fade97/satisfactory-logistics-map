@@ -43,7 +43,7 @@ def test_stations(S):
 
 def test_machine_fields(fac):
     for m in fac['machines']:
-        assert m['state'] in ('läuft', 'teilweise', 'steht', 'pausiert', 'aus')
+        assert m['state'] in ('running', 'partial', 'stopped', 'paused', 'off')
         assert 0 <= m['pct'] <= 100
         for x in m['out'] + m['inp']:
             assert x['rate'] <= x['max'] + 1e-6, (m['id'], x)

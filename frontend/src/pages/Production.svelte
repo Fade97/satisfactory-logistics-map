@@ -12,7 +12,7 @@
   let q = $state('');
   let sortK = $state<'item' | 'net' | 'prod' | 'cons'>('net');
   let sortDir = $state(1);
-  let only = $state<'alle' | 'mangel' | 'ueberschuss'>('alle');
+  let only = $state<'all' | 'starved' | 'surplus'>('all');
   let open = $state<string | null>(null);
   let hist = $state<any>(null);
 
@@ -25,7 +25,7 @@
   const bal = $derived.by(() => {
     const rows = (f?.balance || []).map(b => ({ ...b, net: b.prod - b.cons, net_max: b.prod_max - b.cons_max }))
       .filter(b => matches(q, both(b.item)))
-      .filter(b => only === 'alle' || (only === 'mangel' ? b.net < -0.05 : b.net > 0.05));
+      .filter(b => only === 'all' || (only === 'starved' ? b.net < -0.05 : b.net > 0.05));
     const k = sortK;
     return rows.sort((a, b) => k === 'item' ? a.item.localeCompare(b.item, locale()) * sortDir : ((a as any)[k] - (b as any)[k]) * sortDir);
   });
@@ -33,12 +33,12 @@
 
   let showFull = $state(false);
   const facOf = $derived(new Map((f?.factories || []).flatMap(x => (x.ids || []).map(id => [id, x] as const))));
-  const starvedN = $derived((f?.machines || []).filter(m => m.state === 'steht' && m.block !== 'voll').length);
-  const stalled = $derived((f?.machines || []).filter(m => (m.state === 'steht' || m.state === 'teilweise') && (showFull || m.block !== 'voll'))
+  const starvedN = $derived((f?.machines || []).filter(m => m.state === 'stopped' && m.block !== 'full').length);
+  const stalled = $derived((f?.machines || []).filter(m => (m.state === 'stopped' || m.state === 'partial') && (showFull || m.block !== 'full'))
     .filter(m => matches(q, both(m.recipe || m.name), m.why, ...m.out.map(o => both(o.item)))));
   const reasons = $derived.by(() => {
     const r = new Map<string, number>();
-    for (const m of stalled) if (m.state === 'steht') { const k = m.why || tr('Grund unbekannt'); r.set(k, (r.get(k) || 0) + 1); }
+    for (const m of stalled) if (m.state === 'stopped') { const k = m.why || tr('Unknown reason'); r.set(k, (r.get(k) || 0) + 1); }
     return [...r.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
   });
   const facs = $derived((f?.factories || []).filter(x => matches(q, x.name, ...x.out.map(o => both(o.item)))));
@@ -52,61 +52,61 @@
     }
     return [...m.values()].filter(e => matches(q, both(e.item))).sort((a, b) => a.item.localeCompare(b.item, locale()));
   });
-  const PUR: Record<string, string> = { pure: 'rein', normal: 'normal', impure: 'unrein' };
+  const PUR: Record<string, string> = { pure: 'pure', normal: 'normal', impure: 'impure' };
 
   async function toggle(item: string) {
     open = open === item ? null : item; hist = null;
     if (open) {
       const r = await series(['prod:' + item, 'cons:' + item], Date.now() / 1000 - 86400);
-      hist = [{ key: 'p', label: tr('Produktion'), points: r.data['prod:' + item] || [] },
-              { key: 'c', label: tr('Verbrauch'), points: r.data['cons:' + item] || [] }];
+      hist = [{ key: 'p', label: tr('Production'), points: r.data['prod:' + item] || [] },
+              { key: 'c', label: tr('Consumption'), points: r.data['cons:' + item] || [] }];
     }
   }
   const machinesFor = (item: string) => (f?.machines || []).filter(m => m.out.some(o => o.item === item) || m.inp.some(i => i.item === item));
 </script>
 
 <div class="page">
-  <h1>{$t('Produktion')}</h1>
-  <p class="src">{f ? (f.source === 'frm' ? $t('Live-Werte') : $t('Aus dem Save {ago} — Ist-Raten sind Mittel über die letzten 5–10 Minuten', { ago: ago($status?.save?.mtime) })) : $t('lädt …')}</p>
+  <h1>{$t('Production')}</h1>
+  <p class="src">{f ? (f.source === 'frm' ? $t('Live values') : $t('From the save ({ago}) — actual rates are averages over the last 5–10 minutes', { ago: ago($status?.save?.mtime) })) : $t('loading …')}</p>
 
   <div class="kpis">
-    <div class="kpi panel"><div class="v">{f?.machines.length ?? '–'}</div><div class="l">{$t('Maschinen')}</div></div>
-    <div class="kpi panel"><div class="v" style="color:{C.ok}">{counts['läuft'] ?? 0}</div><div class="l">{$t('laufen voll')}</div></div>
-    <div class="kpi panel"><div class="v" style="color:{C.warn}">{counts['teilweise'] ?? 0}</div><div class="l">{$t('laufen teilweise')}</div></div>
-    <div class="kpi panel"><div class="v" style="color:{C.bad}">{starvedN}</div><div class="l">{$t('Materialmangel')}</div></div>
-    <div class="kpi panel"><div class="v muted">{(counts['steht'] ?? 0) - starvedN}</div><div class="l">{$t('warten, Ausgang voll')}</div></div>
-    <div class="kpi panel"><div class="v">{f?.factories.length ?? '–'}</div><div class="l">{$t('Fabriken erkannt')}</div></div>
+    <div class="kpi panel"><div class="v">{f?.machines.length ?? '–'}</div><div class="l">{$t('Machines')}</div></div>
+    <div class="kpi panel"><div class="v" style="color:{C.ok}">{counts['running'] ?? 0}</div><div class="l">{$t('running fully')}</div></div>
+    <div class="kpi panel"><div class="v" style="color:{C.warn}">{counts['partial'] ?? 0}</div><div class="l">{$t('running partially')}</div></div>
+    <div class="kpi panel"><div class="v" style="color:{C.bad}">{starvedN}</div><div class="l">{$t('Missing input')}</div></div>
+    <div class="kpi panel"><div class="v muted">{(counts['stopped'] ?? 0) - starvedN}</div><div class="l">{$t('waiting, output full')}</div></div>
+    <div class="kpi panel"><div class="v">{f?.factories.length ?? '–'}</div><div class="l">{$t('Factories detected')}</div></div>
     {#if $sink}
       <div class="kpi panel" title="AWESOME Sink">
-        <div class="v num">{$sink.coupons}<small> {$t('Coupons')}</small></div>
+        <div class="v num">{$sink.coupons}<small> {$t('coupons')}</small></div>
         {#if $sink.pct != null}<div class="bar" style="margin:4px 0"><i style="width:{$sink.pct * 100}%;background:var(--ficsit)"></i></div>{/if}
-        <div class="l">{$sink.per_min != null ? $t('{n} Punkte/min', { n: fmtNum($sink.per_min) }) + ' · ' : ''}{$sink.to_coupon != null ? $t('{n} bis zum nächsten', { n: fmtNum($sink.to_coupon) }) : $t('{n} Punkte', { n: fmtNum($sink.points) })}</div>
+        <div class="l">{$sink.per_min != null ? $t('{n} points/min', { n: fmtNum($sink.per_min) }) + ' · ' : ''}{$sink.to_coupon != null ? $t('{n} to the next', { n: fmtNum($sink.to_coupon) }) : $t('{n} points', { n: fmtNum($sink.points) })}</div>
       </div>
     {/if}
   </div>
 
   <div class="bar2">
     <div class="seg">
-      {#each [['bilanz', $t('Warenbilanz')], ['stehend', $t('Materialmangel')], ['fabriken', $t('Fabriken')], ['knoten', $t('Rohstoffknoten')]] as [k, l]}
+      {#each [['bilanz', $t('Item balance')], ['stehend', $t('Missing input')], ['fabriken', $t('Factories')], ['knoten', $t('Resource nodes')]] as [k, l]}
         <button class:on={view === k} onclick={() => (view = k as any)}>{l}</button>
       {/each}
     </div>
-    <input class="field srch" type="search" bind:value={q} placeholder={$t('Ware oder Fabrik filtern, z. B. Kupfer')} />
+    <input class="field srch" type="search" bind:value={q} placeholder={$t('Filter by item or factory, e.g. copper')} />
   </div>
 
   {#if view === 'bilanz'}
     <div class="seg small">
-      {#each [['alle', $t('Alle Waren')], ['mangel', $t('Nur Mangel')], ['ueberschuss', $t('Nur Überschuss')]] as [k, l]}<button class:on={only === k} onclick={() => (only = k as any)}>{l}</button>{/each}
+      {#each [['all', $t('All items')], ['starved', $t('Shortages only')], ['surplus', $t('Surplus only')]] as [k, l]}<button class:on={only === k} onclick={() => (only = k as any)}>{l}</button>{/each}
     </div>
     <div class="panel card tbl">
       <table class="t">
         <thead><tr>
-          <th class="sort" onclick={() => sortBy('item')}>{$t('Ware')}</th>
-          <th class="n sort" onclick={() => sortBy('prod')}>{$t('Produktion /min')}</th>
-          <th class="n sort" onclick={() => sortBy('cons')}>{$t('Verbrauch /min')}</th>
-          <th class="n sort" onclick={() => sortBy('net')}>{$t('Saldo')}</th>
-          <th class="hide-m">{$t('Auslastung')}</th>
-          <th class="n hide-m">{$t('Soll-Saldo')}</th>
+          <th class="sort" onclick={() => sortBy('item')}>{$t('Item')}</th>
+          <th class="n sort" onclick={() => sortBy('prod')}>{$t('Production /min')}</th>
+          <th class="n sort" onclick={() => sortBy('cons')}>{$t('Consumption /min')}</th>
+          <th class="n sort" onclick={() => sortBy('net')}>{$t('Net')}</th>
+          <th class="hide-m">{$t('Utilization')}</th>
+          <th class="n hide-m">{$t('Target net')}</th>
         </tr></thead>
         <tbody>
           {#each bal as b (b.item)}
@@ -115,43 +115,43 @@
               <td class="n">{fmtNum(b.prod)}</td>
               <td class="n">{fmtNum(b.cons)}</td>
               <td class="n" style="color:{b.net < -0.05 ? C.bad : b.net > 0.05 ? C.ok : 'inherit'}">{b.net > 0 ? '+' : ''}{fmtNum(b.net)}</td>
-              <td class="hide-m"><div class="bar" title={$t('Ist-Produktion im Verhältnis zur möglichen')}><i style="width:{b.prod_max ? Math.min(100, b.prod / b.prod_max * 100) : 0}%;background:var(--text2)"></i></div></td>
+              <td class="hide-m"><div class="bar" title={$t('Actual production relative to possible production')}><i style="width:{b.prod_max ? Math.min(100, b.prod / b.prod_max * 100) : 0}%;background:var(--text2)"></i></div></td>
               <td class="n hide-m muted">{b.net_max > 0 ? '+' : ''}{fmtNum(b.net_max)}</td>
             </tr>
             {#if open === b.item}
               <tr class="exp"><td colspan="6">
                 <div class="expbox">
-                  <div class="ch"><h3>{$t('Letzte 24 Stunden')}</h3>{#if hist}<LineChart series={hist} unit="/min" height={180} />{:else}<p class="muted">{$t('lädt …')}</p>{/if}</div>
-                  <div class="ms"><h3>{$t('Maschinen')}</h3>
+                  <div class="ch"><h3>{$t('Last 24 hours')}</h3>{#if hist}<LineChart series={hist} unit="/min" height={180} />{:else}<p class="muted">{$t('loading …')}</p>{/if}</div>
+                  <div class="ms"><h3>{$t('Machines')}</h3>
                     {#each machinesFor(b.item).slice(0, 14) as m}
                       {@const rn = fmtNum((m.out.find(o => o.item === b.item) || m.inp.find(i => i.item === b.item))!.rate)}
                       <button class="lk" onclick={() => toMap('machine:' + m.id, m.pos[0], m.pos[1])}>
                         <span class="dot" style="background:{machineColor(m)}"></span>{$tn(m.recipe || m.name)}
-                        <span class="muted">{m.out.some(o => o.item === b.item) ? $t('erzeugt {n}/min', { n: rn }) : $t('braucht {n}/min', { n: rn })}</span></button>
+                        <span class="muted">{m.out.some(o => o.item === b.item) ? $t('makes {n}/min', { n: rn }) : $t('needs {n}/min', { n: rn })}</span></button>
                     {/each}
                   </div>
                 </div>
               </td></tr>
             {/if}
-          {:else}<tr><td colspan="6" class="muted">{$t('Keine Ware passt zum Filter.')}</td></tr>{/each}
+          {:else}<tr><td colspan="6" class="muted">{$t('No item matches the filter.')}</td></tr>{/each}
         </tbody>
       </table>
     </div>
 
   {:else if view === 'stehend'}
     <div class="grid2">
-      <div class="panel card"><h2>{$t('Häufigste Gründe')}</h2>
-        <label class="tg"><input type="checkbox" bind:checked={showFull} /> {$t('auch Maschinen mit vollem Ausgang zeigen')}</label>
+      <div class="panel card"><h2>{$t('Most common reasons')}</h2>
+        <label class="tg"><input type="checkbox" bind:checked={showFull} /> {$t('also show machines with full output')}</label>
         {#each reasons as [r, n]}
           <button class="reason" onclick={() => (q = r.replace(/^[^:]+: /, ''))}><span class="num">{n}×</span>{$lx(r)}</button>
-        {:else}<p class="muted">{$t('Keine stehenden Maschinen.')}</p>{/each}
-        <p class="muted small">{$t('„Ausgang voll“ heißt meist: Abnehmer fehlt oder Band zu langsam. „fehlt“: Zufuhr reicht nicht.')}
-          {$t('Der Grund wird aus den Maschinen-Inventaren im Save geschätzt.')}</p>
+        {:else}<p class="muted">{$t('No stopped machines.')}</p>{/each}
+        <p class="muted small">{$t('“Output full” usually means there is no consumer or the belt is too slow. “Missing”: the supply is not enough.')}
+          {$t('The reason is estimated from the machine inventories in the save.')}</p>
       </div>
     </div>
     <div class="panel card tbl" style="margin-top:16px">
       <table class="t">
-        <thead><tr><th>{$t('Maschine')}</th><th>{$t('Zustand')}</th><th>{$t('Grund')}</th><th class="n hide-m">{$t('seit')}</th><th class="hide-m">{$t('Fabrik')}</th></tr></thead>
+        <thead><tr><th>{$t('Machine')}</th><th>{$t('State')}</th><th>{$t('Reason')}</th><th class="n hide-m">{$t('since')}</th><th class="hide-m">{$t('Factory')}</th></tr></thead>
         <tbody>
           {#each stalled.slice(0, 400) as m (m.id)}
             {@const fc = facOf.get(m.id)}
@@ -168,13 +168,13 @@
     </div>
 
   {:else if view === 'fabriken'}
-    <p class="muted">{$t('Maschinen im Abstand von höchstens 60 m bilden eine Fabrik; der Name kommt vom Hauptprodukt. Umbenennen geht auf der Karte in der Fabrik-Detailansicht.')}</p>
+    <p class="muted">{$t('Machines no more than 60 m apart form a factory; the name comes from its main product. You can rename it on the map in the factory details.')}</p>
     <div class="fgrid">
       {#each facs as x (x.key)}
         <button class="panel fc" onclick={() => toMap('factory:' + x.key, x.center[0], x.center[1])}>
           <h3>{$lx(x.name)}</h3>
-          <div class="stbar">{#each ['läuft', 'teilweise'] as s}{#if x.states[s]}<i style="flex:{x.states[s]};background:{STATE_COLOR[s]}" title="{x.states[s]} {$t(s)}"></i>{/if}{/each}{#if x.full}<i style="flex:{x.full};background:#8a857c" title={$t('{n} warten (Ausgang voll)', { n: x.full })}></i>{/if}{#if x.starved}<i style="flex:{x.starved};background:{C.bad}" title={$t('{n} Materialmangel', { n: x.starved })}></i>{/if}</div>
-          <div class="muted small">{$t('{n} Maschinen', { n: x.n })} · {fmtMW(x.power)}{x.starved ? ' · ' + $t('{n} mit Materialmangel', { n: x.starved }) : ''}</div>
+          <div class="stbar">{#each ['running', 'partial'] as s}{#if x.states[s]}<i style="flex:{x.states[s]};background:{STATE_COLOR[s]}" title="{x.states[s]} {$t(s)}"></i>{/if}{/each}{#if x.full}<i style="flex:{x.full};background:#8a857c" title={$t('{n} waiting (output full)', { n: x.full })}></i>{/if}{#if x.starved}<i style="flex:{x.starved};background:{C.bad}" title={$t('{n} missing input', { n: x.starved })}></i>{/if}</div>
+          <div class="muted small">{$t('{n} machines', { n: x.n })} · {fmtMW(x.power)}{x.starved ? ' · ' + $t('{n} with missing input', { n: x.starved }) : ''}</div>
           <div class="io">{#each x.out.slice(0, 3) as o}<span>{$tn(o.item)} <b class="num">{fmtNum(o.rate)}</b></span>{/each}</div>
         </button>
       {/each}
@@ -183,7 +183,7 @@
   {:else}
     <div class="panel card tbl">
       <table class="t">
-        <thead><tr><th>{$t('Rohstoff')}</th><th class="n">{$t('rein')}</th><th class="n">{$t('normal')}</th><th class="n">{$t('unrein')}</th><th class="n">{$t('belegt')}</th><th class="n">{$t('frei')}</th></tr></thead>
+        <thead><tr><th>{$t('Resource')}</th><th class="n">{$t('pure')}</th><th class="n">{$t('normal')}</th><th class="n">{$t('impure')}</th><th class="n">{$t('occupied')}</th><th class="n">{$t('free')}</th></tr></thead>
         <tbody>
           {#each nodeStats as e (e.item)}
             <tr class="click" onclick={() => (open = open === e.item ? null : e.item)}>
@@ -192,14 +192,14 @@
             {#if open === e.item}
               <tr class="exp"><td colspan="6"><div class="nodes">
                 {#each e.list.filter(n => !n.used).sort((a, b) => (b.purity === 'pure' ? 2 : b.purity === 'normal' ? 1 : 0) - (a.purity === 'pure' ? 2 : a.purity === 'normal' ? 1 : 0)) as n}
-                  <button class="lk" onclick={() => toMap('node:' + n.id, n.pos[0], n.pos[1])}>{$t('frei')} · {PUR[n.purity] ? $t(PUR[n.purity]) : '?'} · {n.pos[0]} / {n.pos[1]} m</button>
+                  <button class="lk" onclick={() => toMap('node:' + n.id, n.pos[0], n.pos[1])}>{$t('free')} · {PUR[n.purity] ? $t(PUR[n.purity]) : '?'} · {n.pos[0]} / {n.pos[1]} m</button>
                 {/each}
               </div></td></tr>
             {/if}
           {/each}
         </tbody>
       </table>
-      <p class="muted small">{$t('Reinheit nach Community-Daten (satisfactory-savegame-prometheus-exporter, MIT). Freie Knoten zum Anzeigen anklicken; auf der Karte lässt sich die Ebene „Rohstoffknoten“ einschalten.')}</p>
+      <p class="muted small">{$t('Purity from community data (satisfactory-savegame-prometheus-exporter, MIT). Click a resource to list its free nodes; on the map you can turn on the “Resource nodes” layer.')}</p>
     </div>
   {/if}
 </div>

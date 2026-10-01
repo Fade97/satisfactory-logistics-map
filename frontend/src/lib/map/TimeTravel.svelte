@@ -41,27 +41,27 @@
 </script>
 
 <div class="tt panel">
-  <div class="hd"><b>{$t('Zeitreise')}</b>
-    <select class="field sel" bind:value={hours} onchange={load} aria-label={$t('Zeitraum')}>
+  <div class="hd"><b>{$t('Time travel')}</b>
+    <select class="field sel" bind:value={hours} onchange={load} aria-label={$t('Time range')}>
       {#each [[2, '2 h'], [6, '6 h'], [12, '12 h'], [24, '24 h']] as [h, l]}<option value={h}>{l}</option>{/each}
     </select>
-    <span class="muted">{loading ? $t('lädt …') : frames.length ? clock(frames[idx][0]) + ' · ' + new Date(frames[idx][0] * 1000).toLocaleDateString(locale(), { weekday: 'short' }) : ''}</span>
-    <button class="x" onclick={onclose} aria-label={$t('Zeitreise beenden')}>✕</button>
+    <span class="muted">{loading ? $t('loading …') : frames.length ? clock(frames[idx][0]) + ' · ' + new Date(frames[idx][0] * 1000).toLocaleDateString(locale(), { weekday: 'short' }) : ''}</span>
+    <button class="x" onclick={onclose} aria-label={$t('Close time travel')}>✕</button>
   </div>
   {#if frames.length > 1}
     <div class="row">
-      <button class="btn pl" onclick={play} aria-label={playing ? $t('Anhalten') : $t('Abspielen')}>{playing ? '❚❚' : '▶'}</button>
+      <button class="btn pl" onclick={play} aria-label={playing ? $t('Pause') : $t('Play')}>{playing ? '❚❚' : '▶'}</button>
       <div class="track">
-        <input type="range" min="0" max={frames.length - 1} bind:value={idx} oninput={() => { playing = false; clearInterval(timer); emit(); }} aria-label={$t('Zeitpunkt')} />
-        {#each gaps as g}<i class="gap" style="left:{(g / (frames.length - 1)) * 100}%" title={$t('Pause/Lücke')}></i>{/each}
+        <input type="range" min="0" max={frames.length - 1} bind:value={idx} oninput={() => { playing = false; clearInterval(timer); emit(); }} aria-label={$t('Point in time')} />
+        {#each gaps as g}<i class="gap" style="left:{(g / (frames.length - 1)) * 100}%" title={$t('Pause/gap')}></i>{/each}
       </div>
-      <select class="field sel" bind:value={speed} onchange={() => { if (playing) { playing = false; play(); } }} aria-label={$t('Tempo')}>
+      <select class="field sel" bind:value={speed} onchange={() => { if (playing) { playing = false; play(); } }} aria-label={$t('Speed')}>
         {#each [5, 10, 30] as s}<option value={s}>{s}×</option>{/each}
       </select>
     </div>
-    <p class="muted">{clock(frames[0][0])} – {clock(frames[frames.length - 1][0])} · {$t('Fabrik-Umrisse zeigen den damaligen Zustand. Live-Daten sind solange angehalten.')}</p>
+    <p class="muted">{clock(frames[0][0])} – {clock(frames[frames.length - 1][0])} · {$t('Factory outlines show the status at that time. Live data is paused meanwhile.')}</p>
   {:else if !loading}
-    <p class="muted">{$t('Noch keine Aufzeichnung. Die Zeitreise speichert jede Minute, solange jemand spielt (der Server pausiert ohne Spieler).')}</p>
+    <p class="muted">{$t('Nothing recorded yet. Time travel saves a snapshot every minute while someone is playing (the server pauses when nobody is online).')}</p>
   {/if}
 </div>
 

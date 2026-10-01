@@ -174,9 +174,9 @@ def frm_factory():
         if pct is None and prod:                      # Extraktor: Auslastung steht je Produkt
             pct = prod[0].get('ProdPercent')
         pct = float(pct or 0)
-        state = ('aus' if not m.get('IsConfigured') else 'pausiert' if m.get('IsPaused')
-                 else 'läuft' if m.get('IsProducing') and pct >= 95
-                 else 'teilweise' if m.get('IsProducing') else 'steht')
+        state = ('off' if not m.get('IsConfigured') else 'paused' if m.get('IsPaused')
+                 else 'running' if m.get('IsProducing') and pct >= 95
+                 else 'partial' if m.get('IsProducing') else 'stopped')
         b = base.get(mid, {})
         recipe = m.get('Recipe') or None
         if is_ex:                                     # Namen wie im Save-Pfad, damit Filter/Knoten passen
@@ -185,7 +185,7 @@ def frm_factory():
                          z=round(m['location']['z'] / 100), recipe=recipe, clock=round(float(m.get('ManuSpeed') or 100) / 100, 3),
                          node=b.get('node'), purity=b.get('purity'), yaw=b.get('yaw', round(float(m['location'].get('rotation') or 0))),
                          state=state, pct=round(pct), circuit=pi.get('CircuitGroupID'),
-                         by=b.get('by'), why=b.get('why') if state == 'steht' else None, since=b.get('since'),
+                         by=b.get('by'), why=b.get('why') if state == 'stopped' else None, since=b.get('since'),
                          fuse=bool(pi.get('FuseTriggered')), power=round(float(pi.get('PowerConsumed') or 0), 1),
                          out=[dict(item=p.get('Name'), rate=round(float(p.get('CurrentProd') or 0), 2), max=round(float(p.get('MaxProd') or 0), 2)) for p in prod],
                          inp=[dict(item=i.get('Name'), rate=round(float(i.get('CurrentConsumed') or 0), 2), max=round(float(i.get('MaxConsumed') or 0), 2)) for i in ing]))

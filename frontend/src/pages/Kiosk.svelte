@@ -25,7 +25,7 @@
   const who = $derived(q.get('follow') || ($live?.players.find(p => p.online === true)?.name ?? ''));
   const f = $derived($factory);
   const power = $derived((f?.circuits || []).reduce((a, c) => ({ use: a.use + c.use, cap: a.cap + c.cap }), { use: 0, cap: 0 }));
-  const stalled = $derived((f?.machines || []).filter(m => m.state === 'steht' && m.block !== 'voll').length);
+  const stalled = $derived((f?.machines || []).filter(m => m.state === 'stopped' && m.block !== 'full').length);
   const deficit = $derived((f?.balance || []).map(b => ({ item: b.item, net: b.prod - b.cons })).filter(b => b.net < -0.5).sort((a, b) => a.net - b.net).slice(0, 4));
   const moving = $derived(($live?.trains || []).filter(z => (z.speed || 0) > 5).length);
   let now = $state(new Date());
@@ -43,20 +43,20 @@
   <aside>
     <div class="top">
       <div class="clk num">{now.toLocaleTimeString(locale(), { hour: '2-digit', minute: '2-digit' })}</div>
-      <div class="muted">{$status?.frm.ok ? $t('live') : $t('aus dem Save')}{$live?.session ? ' · ' + $t('Spielzeit {clock}', { clock: $live.session.clock }) : ''}</div>
+      <div class="muted">{$status?.frm.ok ? $t('live') : $t('from the save')}{$live?.session ? ' · ' + $t('Game time {clock}', { clock: $live.session.clock }) : ''}</div>
     </div>
     <div class="tiles">
-      <div class="tile panel"><div class="v num" style="color:{power.cap && power.use / power.cap > .9 ? C.bad : 'inherit'}">{fmtMW(power.use)}</div><div class="l">{$t('von {cap} Strom', { cap: fmtMW(power.cap) })}</div></div>
-      <div class="tile panel"><div class="v num" style="color:{stalled ? C.warn : 'inherit'}">{stalled}</div><div class="l">{$t('Maschinen mit Materialmangel')}</div></div>
-      <div class="tile panel"><div class="v num">{moving}/{$live?.trains.length ?? 0}</div><div class="l">{$t('Züge unterwegs')}</div></div>
-      <div class="tile panel"><div class="v num">{($live?.players || []).filter(p => p.online).length}</div><div class="l">{$t('Spieler online')}</div></div>
+      <div class="tile panel"><div class="v num" style="color:{power.cap && power.use / power.cap > .9 ? C.bad : 'inherit'}">{fmtMW(power.use)}</div><div class="l">{$t('of {cap} power', { cap: fmtMW(power.cap) })}</div></div>
+      <div class="tile panel"><div class="v num" style="color:{stalled ? C.warn : 'inherit'}">{stalled}</div><div class="l">{$t('Machines with missing input')}</div></div>
+      <div class="tile panel"><div class="v num">{moving}/{$live?.trains.length ?? 0}</div><div class="l">{$t('Trains on the move')}</div></div>
+      <div class="tile panel"><div class="v num">{($live?.players || []).filter(p => p.online).length}</div><div class="l">{$t('Players online')}</div></div>
     </div>
     {#if deficit.length}
-      <div class="def"><h3>{$t('Größter Mangel')}</h3>
+      <div class="def"><h3>{$t('Biggest shortages')}</h3>
         {#each deficit as d}<div class="dr"><span>{$tn(d.item)}</span><span class="num" style="color:{C.bad}">{fmtNum(d.net)}/min</span></div>{/each}</div>
     {/if}
-    <div class="feed"><h3>{$t('Ereignisse')}</h3><EventFeed compact /></div>
-    <a class="exit" href="#/map">{$t('Kiosk verlassen')}</a>
+    <div class="feed"><h3>{$t('Events')}</h3><EventFeed compact /></div>
+    <a class="exit" href="#/map">{$t('Exit kiosk')}</a>
   </aside>
 </div>
 

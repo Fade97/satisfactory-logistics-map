@@ -24,9 +24,9 @@ export interface Stations {
 export interface Flow { item: string; rate: number; max: number }
 export interface Machine {
   id: string; cls: string; name: string; pos: number[]; z?: number; recipe: string | null; alt?: boolean; clock: number;
-  state: 'läuft' | 'teilweise' | 'steht' | 'pausiert' | 'aus'; pct: number; circuit: number | null;
+  state: 'running' | 'partial' | 'stopped' | 'paused' | 'off'; pct: number; circuit: number | null;
   by?: string | null; why?: string | null; since?: number | null; fuse?: boolean; power: number;
-  out: Flow[]; inp: Flow[]; node?: string; purity?: string; block?: 'voll' | 'mangel' | 'unklar' | null; nopower?: boolean;
+  out: Flow[]; inp: Flow[]; node?: string; purity?: string; block?: 'full' | 'starved' | 'unknown' | null; nopower?: boolean;
 }
 export interface Generator {
   id: string; cls: string; name: string; pos: number[]; circuit: number | null; cap: number; producing: boolean;

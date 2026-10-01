@@ -4,7 +4,7 @@
   import { live, stations, factory, geo, nodes, powerlines, pins, trails, loadPins, flow, collectibles } from '../lib/api';
   import { route, replaceQuery } from '../lib/router';
   import { LAYERS, stationsObjs, liveObjs, factoryObjs, nodeObjs, pinObjs, applyGeo, factoryColor, collectibleObjs } from '../lib/scene';
-  import { C, MODE_DE, fmtNum } from '../lib/fmt';
+  import { C, MODE_LABEL, fmtNum } from '../lib/fmt';
   import Detail from '../lib/Detail.svelte';
   import PinEditor from '../lib/PinEditor.svelte';
   import StationList from '../lib/map/StationList.svelte';
@@ -94,13 +94,13 @@
   // Spieler, die nicht online sind, werden nicht verfolgt (ihre Figur steht nur im Spiel herum).
   // Das Ziel bleibt gemerkt: Kommt der Spieler online, geht das Folgen von selbst weiter.
   const followState = $derived.by(() => {
-    if (!follow) return 'aus';
-    if (!follow.startsWith('player:')) return 'aktiv';
+    if (!follow) return 'off';
+    if (!follow.startsWith('player:')) return 'active';
     const p = ($live?.players || []).find(x => 'player:' + x.name === follow);
-    return !p ? 'weg' : p.online === true ? 'aktiv' : 'offline';
+    return !p ? 'gone' : p.online === true ? 'active' : 'offline';
   });
   $effect(() => {                      // Folge-Modus: die Kamera führt die MapView im Render-Loop nach (gleiche Interpolation wie der Punkt)
-    const f = followState === 'aktiv' ? follow : '', s = sel, mob = isMobile;
+    const f = followState === 'active' ? follow : '', s = sel, mob = isMobile;
     untrack(() => {
       if (!V) return;
       V.followKey = f || null;
@@ -159,7 +159,7 @@
     return {
       c_somersloop: `${(tot.somersloop ?? 0) - (o.somersloop?.length ?? 0)} / ${tot.somersloop}`,
       c_mercer: `${(tot.mercer ?? 0) - (o.mercer?.length ?? 0)} / ${tot.mercer}`,
-      c_slug: $t('{n} offen', { n: (o.slug1?.length ?? 0) + (o.slug2?.length ?? 0) + (o.slug3?.length ?? 0) }),
+      c_slug: $t('{n} left', { n: (o.slug1?.length ?? 0) + (o.slug2?.length ?? 0) + (o.slug3?.length ?? 0) }),
       c_droppod: `${c.looted_pods} / ${tot.droppod}`,
     } as Record<string, string>;
   });
@@ -300,7 +300,7 @@
     V.onchange = () => { scalebar(); writeHash(); };
     let heatKey = '', heatCv: HTMLCanvasElement | null = null, heatBox = { x: 0, y: 0, k: 1 };
     V.overlays.push({ key: 'heat', layer: 'heat', draw: (c, v) => {
-      const ms = ($factory?.machines || []).filter(m => m.state === 'steht' && m.block !== 'voll');
+      const ms = ($factory?.machines || []).filter(m => m.state === 'stopped' && m.block !== 'full');
       if (!ms.length) return;
       // Wärmebild in Weltkoordinaten einmal je Datenstand rendern (4 m/px), dann nur skaliert zeichnen
       const key = ($factory?.at || 0) + ':' + ms.length;
@@ -497,7 +497,7 @@
   function finishDraw() {
     if (!draw) return;
     const need = draw.shape === 'point' ? 1 : draw.shape === 'line' ? 2 : 3;
-    if (draw.pts.length >= need) editPin = { author: '', cat: 'geplant', color: '#f59a23', text: '', shape: draw.shape, geom: draw.pts };
+    if (draw.pts.length >= need) editPin = { author: '', cat: 'planned', color: '#f59a23', text: '', shape: draw.shape, geom: draw.pts };
     draw = null; V?.redraw();
   }
   function editObj(o: MapObj) {
@@ -507,15 +507,15 @@
 
   function tipText(o: MapObj) {
     const d = o.data;
-    if (o.kind === 'station') return (d.kind === 'train' ? $t('Zugbahnhof') : $t('Truckstation')) + ' · ' + $t(MODE_DE[d.mode]) + (d.items[0] ? ' · ' + d.items.map((i: any) => $tn(i.item)).join(', ') : '');
+    if (o.kind === 'station') return (d.kind === 'train' ? $t('Train station') : $t('Truck station')) + ' · ' + $t(MODE_LABEL[d.mode]) + (d.items[0] ? ' · ' + d.items.map((i: any) => $tn(i.item)).join(', ') : '');
     if (o.kind === 'machine') return $tn(d.name) + ' · ' + $t(d.state) + ' ' + d.pct + ' %' + (d.why ? ' · ' + $lx(d.why) : '');
-    if (o.kind === 'node') return (d.used ? $t('belegt') : $t('frei')) + (d.rate ? ' · ' + d.rate + '/min' : '');
-    if (o.kind === 'player') return d.online === null ? $t('Stand des Saves') : d.online ? $t('online') : $t('offline');
-    if (o.kind === 'truck' || o.kind === 'train') return (d.cargo ? $tn(d.cargo.item) + ' · ' : '') + (d.speed != null ? Math.round(d.speed) + ' km/h' : $t('Position aus dem Save'));
-    if (o.kind === 'factory') return $t('{n} Maschinen · {s} stehen', { n: d.n, s: d.states['steht'] || 0 });
+    if (o.kind === 'node') return (d.used ? $t('occupied') : $t('free')) + (d.rate ? ' · ' + d.rate + '/min' : '');
+    if (o.kind === 'player') return d.online === null ? $t('as of the save') : d.online ? $t('online') : $t('offline');
+    if (o.kind === 'truck' || o.kind === 'train') return (d.cargo ? $tn(d.cargo.item) + ' · ' : '') + (d.speed != null ? Math.round(d.speed) + ' km/h' : $t('Position from the save'));
+    if (o.kind === 'factory') return $t('{n} machines · {s} stopped', { n: d.n, s: d.states['stopped'] || 0 });
     if (o.kind === 'pin') return d.author;
-    if (o.kind === 'generator') return d.producing ? $t('erzeugt {n} MW', { n: d.cap }) : $t('steht');
-    if (o.kind === 'collectible') return $t('noch nicht eingesammelt · Höhe {z} m', { z: d.pos[2] });
+    if (o.kind === 'generator') return d.producing ? $t('producing {n} MW', { n: d.cap }) : $t('stopped');
+    if (o.kind === 'collectible') return $t('not collected yet · height {z} m', { z: d.pos[2] });
     return '';
   }
 </script>
@@ -523,58 +523,58 @@
 <div class="wrap" class:kiosk>
   {#if !kiosk}
   <StationList bind:q bind:F bind:open={showList} selKey={sel?.key || ''} onpick={pick} onfit={(a, b, c, d) => V?.fit(a, b, c, d)} />
-  {#if showList}<button class="backdrop" aria-label={$t('Liste schließen')} onclick={() => (showList = false)}></button>{/if}
+  {#if showList}<button class="backdrop" aria-label={$t('Close list')} onclick={() => (showList = false)}></button>{/if}
   {/if}
 
   <section class="map">
-    <canvas bind:this={cv} aria-label={$t('Fabrikkarte')}></canvas>
+    <canvas bind:this={cv} aria-label={$t('Factory map')}></canvas>
     {#if tip && !isMobile}
       <div class="tip" style="left:{tip.x + 14}px;top:{tip.y + 14}px"><b>{tip.o.kind === 'machine' || tip.o.kind === 'node' || tip.o.kind === 'generator' ? $tn(tip.o.kind === 'machine' ? (tip.o.data.recipe || tip.o.data.name) : tip.o.kind === 'node' ? tip.o.data.item : tip.o.data.name) : tip.o.label}</b><span>{tipText(tip.o)}</span></div>
     {/if}
 
     {#if !kiosk}
     <div class="ctl">
-      <button class="cb m-only" onclick={() => (showList = !showList)} aria-label={$t('Stationsliste')}>☰</button>
-      <div class="grp"><button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1.5)} aria-label={$t('Hineinzoomen')}>+</button>
-        <button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1 / 1.5)} aria-label={$t('Herauszoomen')}>−</button></div>
-      <button class="cb wide" onclick={fitFactory} title={$t('Auf das Fabrikgebiet (f)')}><span class="i">⌂</span><span class="t">{$t('Fabrik')}</span></button>
-      <button class="cb wide" onclick={fitMap} title={$t('Ganze Karte (g)')}><span class="i">⤢</span><span class="t">{$t('Ganze Karte')}</span></button>
-      <button class="cb wide" class:on={showLayers} onclick={() => (showLayers = !showLayers)}><span class="i">◫</span><span class="t">{$t('Ebenen')}</span></button>
-      <button class="cb wide" class:on={!!draw} onclick={() => (draw ? (draw = null) : startDraw('point'))} title={$t('Notiz auf die Karte setzen')}><span class="i">✎</span><span class="t">{$t('Notiz')}</span></button>
-      <button class="cb wide" class:on={showZ || !!zRange} onclick={() => { showZ = !showZ; if (!showZ) zRange = null; }} title={$t('Nach Höhe/Stockwerk filtern')}><span class="i">☰</span><span class="t">{$t('Höhe')}</span></button>
-      <button class="cb wide" class:on={!!measure} onclick={() => { measure = measure ? null : []; select(null); V?.redraw(); }} title={$t('Strecke und Fläche messen')}><span class="i">⟷</span><span class="t">{$t('Messen')}</span></button>
-      <button class="cb wide" class:on={showTT} onclick={() => (showTT = !showTT)} title={$t('Die letzten Stunden abspielen')}><span class="i">◷</span><span class="t">{$t('Zeitreise')}</span></button>
-      <button class="cb wide" class:on={showFlow || !!flowItem} onclick={() => { showFlow = !showFlow; if (!showFlow) flowItem = ''; }} title={$t('Eine Ware durch die Fabrik verfolgen')}><span class="i">⇶</span><span class="t">{$t('Warenfluss')}</span></button>
+      <button class="cb m-only" onclick={() => (showList = !showList)} aria-label={$t('Station list')}>☰</button>
+      <div class="grp"><button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1.5)} aria-label={$t('Zoom in')}>+</button>
+        <button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1 / 1.5)} aria-label={$t('Zoom out')}>−</button></div>
+      <button class="cb wide" onclick={fitFactory} title={$t('Zoom to the factory area (f)')}><span class="i">⌂</span><span class="t">{$t('Factory')}</span></button>
+      <button class="cb wide" onclick={fitMap} title={$t('Whole map (g)')}><span class="i">⤢</span><span class="t">{$t('Whole map')}</span></button>
+      <button class="cb wide" class:on={showLayers} onclick={() => (showLayers = !showLayers)}><span class="i">◫</span><span class="t">{$t('Layers')}</span></button>
+      <button class="cb wide" class:on={!!draw} onclick={() => (draw ? (draw = null) : startDraw('point'))} title={$t('Put a note on the map')}><span class="i">✎</span><span class="t">{$t('Note')}</span></button>
+      <button class="cb wide" class:on={showZ || !!zRange} onclick={() => { showZ = !showZ; if (!showZ) zRange = null; }} title={$t('Filter by height/floor')}><span class="i">☰</span><span class="t">{$t('Height')}</span></button>
+      <button class="cb wide" class:on={!!measure} onclick={() => { measure = measure ? null : []; select(null); V?.redraw(); }} title={$t('Measure distance and area')}><span class="i">⟷</span><span class="t">{$t('Measure')}</span></button>
+      <button class="cb wide" class:on={showTT} onclick={() => (showTT = !showTT)} title={$t('Play back the last few hours')}><span class="i">◷</span><span class="t">{$t('Time travel')}</span></button>
+      <button class="cb wide" class:on={showFlow || !!flowItem} onclick={() => { showFlow = !showFlow; if (!showFlow) flowItem = ''; }} title={$t('Trace an item through the factory')}><span class="i">⇶</span><span class="t">{$t('Item flow')}</span></button>
       {#if showLayers}
         <div class="layers panel">
           {#each LAYERS as [k, l]}
             <label><input type="checkbox" bind:checked={layers[k]} /> {l}{#if collectCount[k]}<span class="cnt">{collectCount[k]}</span>{/if}</label>
           {/each}
-          <label><input type="checkbox" checked={layers.labels !== false} onchange={e => (layers.labels = (e.target as HTMLInputElement).checked)} /> {$t('Beschriftungen')}</label>
-          <button class="lg" onclick={() => (showLegend = !showLegend)}>{showLegend ? $t('Legende ausblenden') : $t('Legende zeigen')}</button>
+          <label><input type="checkbox" checked={layers.labels !== false} onchange={e => (layers.labels = (e.target as HTMLInputElement).checked)} /> {$t('Labels')}</label>
+          <button class="lg" onclick={() => (showLegend = !showLegend)}>{showLegend ? $t('Hide legend') : $t('Show legend')}</button>
         </div>
       {/if}
       {#if draw}
         <div class="drawbar panel">
           <div class="seg">
-            {#each [['point', $t('Punkt')], ['line', $t('Linie')], ['area', $t('Fläche')]] as [s, l]}
+            {#each [['point', $t('Point')], ['line', $t('Line')], ['area', $t('Area')]] as [s, l]}
               <button class:on={draw.shape === s} onclick={() => (draw = { shape: s as any, pts: [] })}>{l}</button>
             {/each}
           </div>
-          <p>{draw.shape === 'point' ? $t('Tippe auf die Stelle der Notiz.') : $t('Setze Punkte, dann „Fertig“.')}</p>
-          {#if draw.shape !== 'point'}<button class="btn primary" onclick={finishDraw} disabled={draw.pts.length < (draw.shape === 'line' ? 2 : 3)}>{$t('Fertig')}</button>{/if}
-          <button class="btn" onclick={() => (draw = null)}>{$t('Abbrechen')}</button>
+          <p>{draw.shape === 'point' ? $t('Tap where the note should go.') : $t('Place points, then “Done”.')}</p>
+          {#if draw.shape !== 'point'}<button class="btn primary" onclick={finishDraw} disabled={draw.pts.length < (draw.shape === 'line' ? 2 : 3)}>{$t('Done')}</button>{/if}
+          <button class="btn" onclick={() => (draw = null)}>{$t('Cancel')}</button>
         </div>
       {/if}
     </div>
     {#if showLegend}
       <div class="legend panel">
-        <div><span class="dot" style="background:{C.load}"></span> {$t('Beladen')} <span class="dot" style="background:{C.unload}"></span> {$t('Entladen')} <span class="dot" style="background:{C.mixed}"></span> {$t('gemischt')}</div>
-        <div><span class="sq"></span> {$t('Zugbahnhof')} · <span class="dot" style="background:#c3bfb7"></span> {$t('Truckstation')} · {$t('Balken = Füllstand')}</div>
-        <div><span class="dot" style="background:#f59a23;box-shadow:0 0 0 2px #f5f2ea"></span> {$t('Spieler')} · <span class="sq" style="background:{C.train}"></span> {$t('Zug')} · <span class="dia"></span> {$t('Fahrzeug')}</div>
-        <div><span class="sq sm" style="background:{C.ok}"></span> {$t('läuft')} <span class="sq sm" style="background:{C.warn}"></span> {$t('teilweise')} <span class="sq sm" style="background:{C.bad}"></span> {$t('Materialmangel')} <span class="sq sm" style="background:#8a857c"></span> {$t('Ausgang voll')}</div>
-        <div>{$t('Fabrik-Umriss: grün läuft · gelb etwas Mangel · rot viel Mangel')}</div>
-        <div class="muted">{$t('Kartengrafik:')} satisfactory.wiki.gg · CC BY-NC-SA</div>
+        <div><span class="dot" style="background:{C.load}"></span> {$t('Load')} <span class="dot" style="background:{C.unload}"></span> {$t('Unload')} <span class="dot" style="background:{C.mixed}"></span> {$t('mixed')}</div>
+        <div><span class="sq"></span> {$t('Train station')} · <span class="dot" style="background:#c3bfb7"></span> {$t('Truck station')} · {$t('bar = fill level')}</div>
+        <div><span class="dot" style="background:#f59a23;box-shadow:0 0 0 2px #f5f2ea"></span> {$t('Player')} · <span class="sq" style="background:{C.train}"></span> {$t('Train')} · <span class="dia"></span> {$t('Vehicle')}</div>
+        <div><span class="sq sm" style="background:{C.ok}"></span> {$t('running')} <span class="sq sm" style="background:{C.warn}"></span> {$t('partial')} <span class="sq sm" style="background:{C.bad}"></span> {$t('Missing input')} <span class="sq sm" style="background:#8a857c"></span> {$t('Output full')}</div>
+        <div>{$t('Factory outline: green running · yellow some shortage · red severe shortage')}</div>
+        <div class="muted">{$t('Map image:')} satisfactory.wiki.gg · CC BY-NC-SA</div>
       </div>
     {/if}
     <div class="scale"><span style="width:{scaleW}px"></span>{scaleTxt}</div>
@@ -582,7 +582,7 @@
 
     {#if sel && !kiosk}
       <div class="detail panel">
-        <button class="close" onclick={() => select(null)} aria-label={$t('Schließen')}>✕</button>
+        <button class="close" onclick={() => select(null)} aria-label={$t('Close')}>✕</button>
         <Detail o={sel} onpick={pick} following={follow === sel.key}
           onfollow={['player', 'train', 'truck'].includes(sel.kind) ? () => (follow = follow === sel!.key ? '' : sel!.key) : undefined}
           onpin={editObj} />
@@ -592,38 +592,38 @@
     {#if showZ && !kiosk}<HeightPanel bind:zRange onclose={() => (showZ = false)} />{/if}
     {#if measure && !kiosk}
       <div class="flowbar panel meas">
-        <div class="zh"><b>{$t('Messen')}</b><button class="x" onclick={() => { measure = null; V?.redraw(); }} aria-label={$t('Messen beenden')}>✕</button></div>
+        <div class="zh"><b>{$t('Measure')}</b><button class="x" onclick={() => { measure = null; V?.redraw(); }} aria-label={$t('Stop measuring')}>✕</button></div>
         {#if measureInfo}
-          <div class="fs"><span>{$t('Strecke')} <b class="num">{measureInfo.len >= 1000 ? (measureInfo.len / 1000).toFixed(2) + ' km' : Math.round(measureInfo.len) + ' m'}</b></span>
-            {#if measure.length > 2}<span>{$t('Luftlinie Anfang–Ende')} <b class="num">{Math.round(measureInfo.direct)} m</b></span>
-              <span>{$t('Fläche')} <b class="num">{measureInfo.area >= 1e6 ? (measureInfo.area / 1e6).toFixed(2) + ' km²' : fmtNum(Math.round(measureInfo.area)) + ' m²'}</b> ≈ {$t('{n} Fundamente 8×8', { n: fmtNum(Math.floor(measureInfo.area / 64)) })}</span>{/if}
-            <span>≈ {$t('{r} Gleisstücke · {b} Bänder (max. 56 m)', { r: fmtNum(Math.ceil(measureInfo.len / 12)), b: fmtNum(Math.ceil(measureInfo.len / 56)) })}</span></div>
-          <button class="lk" onclick={() => { measure = measure!.slice(0, -1); V?.redraw(); }}>{$t('letzten Punkt entfernen')}</button>
-        {:else}<p class="muted">{$t('Tippe Punkte auf die Karte. Auf Stationen und Maschinen rastet der Punkt ein.')}</p>{/if}
+          <div class="fs"><span>{$t('Distance')} <b class="num">{measureInfo.len >= 1000 ? (measureInfo.len / 1000).toFixed(2) + ' km' : Math.round(measureInfo.len) + ' m'}</b></span>
+            {#if measure.length > 2}<span>{$t('Straight line start–end')} <b class="num">{Math.round(measureInfo.direct)} m</b></span>
+              <span>{$t('Area')} <b class="num">{measureInfo.area >= 1e6 ? (measureInfo.area / 1e6).toFixed(2) + ' km²' : fmtNum(Math.round(measureInfo.area)) + ' m²'}</b> ≈ {$t('{n} foundations 8×8', { n: fmtNum(Math.floor(measureInfo.area / 64)) })}</span>{/if}
+            <span>≈ {$t('{r} rail pieces · {b} belts (max. 56 m)', { r: fmtNum(Math.ceil(measureInfo.len / 12)), b: fmtNum(Math.ceil(measureInfo.len / 56)) })}</span></div>
+          <button class="lk" onclick={() => { measure = measure!.slice(0, -1); V?.redraw(); }}>{$t('remove last point')}</button>
+        {:else}<p class="muted">{$t('Tap points on the map. Points snap to stations and machines.')}</p>{/if}
       </div>
     {/if}
     {#if pickMode && !kiosk}
-      <div class="flowbar panel pick">{$t('Tippe auf die Stelle, an der gebaut werden soll.')}
-        <a class="lk" href="#/planner">{$t('Abbrechen')}</a></div>
+      <div class="flowbar panel pick">{$t('Tap the spot where you want to build.')}
+        <a class="lk" href="#/planner">{$t('Cancel')}</a></div>
     {/if}
     {#if (showFlow || flowItem) && !kiosk}
       <div class="flowbar panel">
-        <div class="fr"><ItemPicker bind:value={flowItem} items={flowItems} placeholder={$t('Ware verfolgen, z. B. Stahlträger')} onpick={() => setTimeout(flowFit, 30)} />
-          <button class="x" onclick={() => { flowItem = ''; showFlow = false; }} aria-label={$t('Warenfluss beenden')}>✕</button></div>
+        <div class="fr"><ItemPicker bind:value={flowItem} items={flowItems} placeholder={$t('Trace an item, e.g. Steel Beam')} onpick={() => setTimeout(flowFit, 30)} />
+          <button class="x" onclick={() => { flowItem = ''; showFlow = false; }} aria-label={$t('Close item flow')}>✕</button></div>
         {#if flowInfo}
-          <div class="fs"><span><b class="num">{fmtNum(flowInfo.prod)}</b>{$t('/min erzeugt · {n} Maschinen', { n: flowInfo.np })}</span>
-            <span><b class="num">{fmtNum(flowInfo.cons)}</b>{$t('/min verbraucht · {n}', { n: flowInfo.nc })}</span>
-            <span>{$t('{s} Stationen · {p} Bänder/Rohre', { s: flowInfo.ns, p: flowInfo.paths.length })}</span></div>
-          {#if !flowInfo.paths.length}<p class="muted">{$t('Im letzten Save lag diese Ware auf keinem Band.')}</p>{/if}
-          <button class="lk" onclick={flowFit}>{$t('Auf alle Stellen zoomen')}</button>
+          <div class="fs"><span><b class="num">{fmtNum(flowInfo.prod)}</b>{$t('/min produced · {n} machines', { n: flowInfo.np })}</span>
+            <span><b class="num">{fmtNum(flowInfo.cons)}</b>{$t('/min consumed · {n}', { n: flowInfo.nc })}</span>
+            <span>{$t('{s} stations · {p} belts/pipes', { s: flowInfo.ns, p: flowInfo.paths.length })}</span></div>
+          {#if !flowInfo.paths.length}<p class="muted">{$t('In the last save this item was not on any belt.')}</p>{/if}
+          <button class="lk" onclick={flowFit}>{$t('Zoom to all locations')}</button>
         {/if}
       </div>
     {/if}
     {#if follow && !kiosk}
-      <div class="following" class:paused={followState !== 'aktiv'}>
-        {#if followState === 'aktiv'}{$t('Karte folgt {name}', { name: follow.split(':').slice(1).join(':') })}
-        {:else}{$t('{name} ist offline — Folgen startet automatisch beim nächsten Login', { name: follow.split(':').slice(1).join(':') })}{/if}
-        <button onclick={() => (follow = '')}>{$t('beenden')}</button></div>
+      <div class="following" class:paused={followState !== 'active'}>
+        {#if followState === 'active'}{$t('Follow {name}', { name: follow.split(':').slice(1).join(':') })}
+        {:else}{$t('{name} is offline — following resumes automatically at their next login', { name: follow.split(':').slice(1).join(':') })}{/if}
+        <button onclick={() => (follow = '')}>{$t('stop')}</button></div>
     {/if}
   </section>
 </div>

@@ -2,7 +2,7 @@
   // Detailkarte für jedes Kartenobjekt.
   import type { MapObj } from './mapview';
   import { live, stations, factory, flow } from './api';
-  import { C, MODE_DE, STATE_COLOR, machineColor, fmtNum, fmtMW, dur } from './fmt';
+  import { C, MODE_LABEL, STATE_COLOR, machineColor, fmtNum, fmtMW, dur } from './fmt';
   import type { Station } from './types';
   import { tn } from './names';
   import { t, tr, lx, locale } from './i18n';
@@ -30,11 +30,11 @@
     }
     return out;
   }
-  const PT: Record<string, string> = { freight: tr('Fracht'), fluid: tr('Flüssig'), empty: tr('leer') };
-  const KIND: Record<string, string> = { collectible: tr('Sammelobjekt'), station: '', player: tr('Spieler'), train: tr('Zug'), truck: tr('Fahrzeug'), machine: tr('Maschine'),
-    generator: tr('Generator'), node: tr('Rohstoffknoten'), pin: tr('Notiz'), factory: tr('Fabrik') };
+  const PT: Record<string, string> = { freight: tr('Freight'), fluid: tr('Fluid'), empty: tr('empty') };
+  const KIND: Record<string, string> = { collectible: tr('Collectible'), station: '', player: tr('Player'), train: tr('Train'), truck: tr('Vehicle'), machine: tr('Machine'),
+    generator: tr('Generator'), node: tr('Resource nodes'), pin: tr('Note'), factory: tr('Factory') };
   // Reinheit kommt englisch vom Backend; die deutschen Begriffe sind gemeinsame Schlüssel (i18n/en/parts.ts)
-  const PUR: Record<string, string> = { pure: 'rein', normal: 'normal', impure: 'unrein' };
+  const PUR: Record<string, string> = { pure: 'pure', normal: 'normal', impure: 'impure' };
 
   const liveSt = $derived(o.kind === 'station' ? $live?.stations?.[d.id.split('.').pop()] : null);
   const vehName = (id: string) => $live?.trucks.find(t => t.id === id)?.name;
@@ -64,25 +64,25 @@
     const ids = new Set(cluster.ids || []);
     return $factory.machines.filter(m => ids.has(m.id));
   });
-  const stalled = $derived(members.filter(m => m.state === 'steht' && m.block !== 'voll'));
+  const stalled = $derived(members.filter(m => m.state === 'stopped' && m.block !== 'full'));
   const key = (s: Station) => 'station:' + s.id.split('.').pop();
   const fillPct = (f: number | null | undefined) => f == null ? null : Math.round(f * 100);
 </script>
 
 <div class="det">
-  <div class="k">{KIND[o.kind] || (d.kind === 'train' ? $t('Zugbahnhof') : $t('Truckstation'))} · {Math.round(o.x)} / {Math.round(o.y)} m</div>
-  <h2>{o.kind === 'machine' ? $tn(d.recipe || d.name) : o.kind === 'pin' ? (d.text.split('\n')[0] || $t('Notiz')) : (o.label || d.name)}</h2>
+  <div class="k">{KIND[o.kind] || (d.kind === 'train' ? $t('Train station') : $t('Truck station'))} · {Math.round(o.x)} / {Math.round(o.y)} m</div>
+  <h2>{o.kind === 'machine' ? $tn(d.recipe || d.name) : o.kind === 'pin' ? (d.text.split('\n')[0] || $t('Note')) : (o.label || d.name)}</h2>
 
   {#if o.kind === 'station'}
-    <div class="row"><span class="tag"><span class="dot" style="background:{C[d.mode]}"></span>{$t(MODE_DE[d.mode])}</span>
-      {#if liveSt}<span class="tag">{liveSt.status === 'Error' ? '⚠ ' + $t('Fehler') : (liveSt.activity || liveSt.status || $t('bereit'))}{liveSt.rate ? ' · ' + fmtNum(liveSt.rate) + '/min' : ''}</span>{/if}
+    <div class="row"><span class="tag"><span class="dot" style="background:{C[d.mode]}"></span>{$t(MODE_LABEL[d.mode])}</span>
+      {#if liveSt}<span class="tag">{liveSt.status === 'Error' ? '⚠ ' + $t('Error') : (liveSt.activity || liveSt.status || $t('ready'))}{liveSt.rate ? ' · ' + fmtNum(liveSt.rate) + '/min' : ''}</span>{/if}
     </div>
     {#if d.kind === 'train'}
       <table class="t">
-        <thead><tr><th>{$t('Plattform')}</th><th>{$t('Ware')}</th><th class="n">{$t('Puffer')}</th></tr></thead>
+        <thead><tr><th>{$t('Platform')}</th><th>{$t('Item')}</th><th class="n">{$t('buffer')}</th></tr></thead>
         <tbody>
         {#each d.platforms as p}
-          <tr><td>{PT[p.type]}<div class="muted small">{p.mode ? $t(MODE_DE[p.mode]) : '—'}</div></td>
+          <tr><td>{PT[p.type]}<div class="muted small">{p.mode ? $t(MODE_LABEL[p.mode]) : '—'}</div></td>
             <td>{p.items.map((i: any) => $tn(i.item)).join(', ') || '—'}</td>
             <td class="n">{p.items.map((i: any) => fmtNum(i.amount)).join(', ') || '—'}
               {#if p.fill != null}<div class="bar mini"><i style="width:{p.fill * 100}%;background:{p.fill > .9 ? C.bad : '#c3bfb7'}"></i></div>{/if}</td></tr>
@@ -93,36 +93,36 @@
         <div class="sec"><h3>{r.name}</h3><div class="muted small">{r.stops.map(s => s.name).join(' → ')}</div></div>
       {/each}
     {:else}
-      <table class="t"><thead><tr><th>{$t('Ware')}</th><th class="n">{$t('Puffer')}</th></tr></thead><tbody>
+      <table class="t"><thead><tr><th>{$t('Item')}</th><th class="n">{$t('buffer')}</th></tr></thead><tbody>
         {#each d.items as i}<tr><td>{$tn(i.item)}</td><td class="n">{fmtNum(i.amount)}</td></tr>
-        {:else}<tr><td colspan="2" class="muted">{(d.vehicles || []).length ? $t('Puffer gerade leer') : $t('Leer. Die Station wurde noch nicht benutzt.')}</td></tr>{/each}
+        {:else}<tr><td colspan="2" class="muted">{(d.vehicles || []).length ? $t('Buffer empty right now') : $t('Empty. The station has not been used yet.')}</td></tr>{/each}
       </tbody></table>
-      {#if d.fill != null}<div class="fill"><div class="bar"><i style="width:{d.fill * 100}%;background:{d.fill > .9 ? C.bad : d.fill < .1 ? C.warn : 'var(--text2)'}"></i></div><span class="num">{$t('{n} % voll', { n: fillPct(d.fill) })}</span></div>{/if}
-      <div class="sec"><h3>{$t('Per Truck verbunden')}</h3>
+      {#if d.fill != null}<div class="fill"><div class="bar"><i style="width:{d.fill * 100}%;background:{d.fill > .9 ? C.bad : d.fill < .1 ? C.warn : 'var(--text2)'}"></i></div><span class="num">{$t('{n} % full', { n: fillPct(d.fill) })}</span></div>{/if}
+      <div class="sec"><h3>{$t('Connected by truck')}</h3>
         {#each links as l}
           <button class="lk" onclick={() => onpick(key(l.s))}><span class="dot" style="background:{C[l.s.mode]}"></span><b>{l.s.name}</b></button>
           {#each l.vs as v}
-            <div class="via">{vehName(v.id) || v.type} · {$t('Runde {t}', { t: dur(v.round / 60) })}{#if v.per_min} · {$t('bis {n}/min', { n: fmtNum(v.per_min) })}{/if}
-              {#if v.last > 3 * Math.max(v.round, 60)}<span class="warn"> · {$t('seit {t} nicht da', { t: dur(v.last / 60) })}</span>{/if}</div>
+            <div class="via">{vehName(v.id) || v.type} · {$t('round trip {t}', { t: dur(v.round / 60) })}{#if v.per_min} · {$t('up to {n}/min', { n: fmtNum(v.per_min) })}{/if}
+              {#if v.last > 3 * Math.max(v.round, 60)}<span class="warn"> · {$t('not seen for {t}', { t: dur(v.last / 60) })}</span>{/if}</div>
           {/each}
-        {:else}<div class="muted small">{$t('Kein Fahrzeug dockt hier an.')}</div>{/each}
+        {:else}<div class="muted small">{$t('No vehicle docks here.')}</div>{/each}
       </div>
     {/if}
     {#if sameItem.length}
-      <div class="sec"><h3>{links.length ? $t('Gleiche Ware, ohne Verbindung') : $t('{item}: Gegenstellen', { item: $tn(d.items[0].item) })}</h3>
+      <div class="sec"><h3>{links.length ? $t('Same item, not connected') : $t('{item}: counterparts', { item: $tn(d.items[0].item) })}</h3>
         {#each sameItem.slice(0, 8) as s}<button class="lk" onclick={() => onpick(key(s))}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>{/each}
       </div>
     {/if}
 
   {:else if o.kind === 'player'}
-    <div class="row"><span class="tag">{d.online === null ? $t('Stand des Saves') : d.online ? (d.dead ? $t('tot') : $t('online')) : $t('offline')}</span>
+    <div class="row"><span class="tag">{d.online === null ? $t('as of the save') : d.online ? (d.dead ? $t('dead') : $t('online')) : $t('offline')}</span>
       {#if d.hp != null}<span class="tag">HP {d.hp}</span>{/if}{#if d.speed}<span class="tag">{fmtNum(d.speed)} km/h</span>{/if}</div>
     {#if onfollow}
-      <button class="btn" class:on={following} onclick={onfollow}>{following ? $t('Folgen beenden') : $t('Karte folgt {name}', { name: d.name })}</button>
-      {#if d.online !== true && !following}<p class="muted small">{$t('{name} ist gerade nicht online — die Karte folgt ab dem nächsten Login.', { name: d.name })}</p>{/if}
+      <button class="btn" class:on={following} onclick={onfollow}>{following ? $t('Stop following') : $t('Follow {name}', { name: d.name })}</button>
+      {#if d.online !== true && !following}<p class="muted small">{$t('{name} is not online right now — the map will follow from their next login.', { name: d.name })}</p>{/if}
     {/if}
     {#if d.inventory?.length}
-      <table class="t"><thead><tr><th>{$t('Inventar')}</th><th class="n">{$t('Menge')}</th></tr></thead><tbody>
+      <table class="t"><thead><tr><th>{$t('Inventory')}</th><th class="n">{$t('Amount')}</th></tr></thead><tbody>
         {#each d.inventory as i}<tr><td>{i.Name}</td><td class="n">{fmtNum(i.Amount)}</td></tr>{/each}</tbody></table>
     {/if}
 
@@ -130,79 +130,79 @@
     <div class="row">
       {#if d.status}<span class="tag">{d.status}</span>{/if}
       {#if d.speed != null}<span class="tag">{fmtNum(d.speed)} km/h</span>{/if}
-      {#if d.derailed}<span class="tag bad">{$t('entgleist')}</span>{/if}
-      {#if d.fuel === false}<span class="tag bad">{$t('kein Treibstoff')}</span>{/if}
-      {#if o.dim}<span class="tag">{$t('Position aus dem Save')}</span>{/if}
+      {#if d.derailed}<span class="tag bad">{$t('derailed')}</span>{/if}
+      {#if d.fuel === false}<span class="tag bad">{$t('out of fuel')}</span>{/if}
+      {#if o.dim}<span class="tag">{$t('Position from the save')}</span>{/if}
     </div>
-    {#if d.station}<p>{$t('Ziel:')} <b>{d.station}</b></p>{/if}
-    {#if d.cargo}<p>{$t('Ladung:')} {$tn(d.cargo.item)} · {fmtNum(d.cargo.amount)}</p>{/if}
-    {#if d.payload}<p>{$t('Ladung:')} {fmtNum(d.payload)} t</p>{/if}
-    {#if onfollow}<button class="btn" class:on={following} onclick={onfollow}>{following ? $t('Folgen beenden') : $t('Karte folgt diesem Fahrzeug')}</button>{/if}
+    {#if d.station}<p>{$t('Destination:')} <b>{d.station}</b></p>{/if}
+    {#if d.cargo}<p>{$t('Cargo:')} {$tn(d.cargo.item)} · {fmtNum(d.cargo.amount)}</p>{/if}
+    {#if d.payload}<p>{$t('Cargo:')} {fmtNum(d.payload)} t</p>{/if}
+    {#if onfollow}<button class="btn" class:on={following} onclick={onfollow}>{following ? $t('Stop following') : $t('Follow this vehicle')}</button>{/if}
     {#if o.kind === 'truck'}
-      <div class="sec"><h3>{$t('Route · {n} Stationen', { n: route.length })}</h3>
+      <div class="sec"><h3>{$t('Route · {n} stations', { n: route.length })}</h3>
         {#each route as s}<button class="lk" onclick={() => onpick(key(s))}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>
-        {:else}<div class="muted small">{$t('Keine Station kennt dieses Fahrzeug.')}</div>{/each}</div>
+        {:else}<div class="muted small">{$t('No station knows this vehicle.')}</div>{/each}</div>
     {/if}
 
   {:else if o.kind === 'machine'}
-    <div class="row"><span class="tag"><span class="dot" style="background:{machineColor(d)}"></span>{d.state === 'steht' && d.block === 'voll' ? $t('wartet (Ausgang voll)') : $t(d.state)} · {d.pct} %</span>
-      <span class="tag">{$tn(d.name)}</span>{#if d.clock !== 1}<span class="tag">{$t('Takt {n} %', { n: Math.round(d.clock * 100) })}</span>{/if}
-      {#if d.alt}<span class="tag">{$t('Alternativrezept')}</span>{/if}{#if d.purity}<span class="tag">{$t('Knoten {p}', { p: PUR[d.purity] ? $t(PUR[d.purity]) : d.purity })}</span>{/if}</div>
-    {#if d.why}<p class:why={d.block !== 'voll'} class:muted={d.block === 'voll'}>{$lx(d.why)}{d.block === 'voll' ? ' — ' + $t('Puffer, kein Handlungsbedarf') : ''}</p>{/if}
-    <table class="t"><thead><tr><th>{$t('Ware')}</th><th class="n">{$t('Ist')}</th><th class="n">{$t('Soll /min')}</th></tr></thead><tbody>
+    <div class="row"><span class="tag"><span class="dot" style="background:{machineColor(d)}"></span>{d.state === 'stopped' && d.block === 'full' ? $t('waiting (output full)') : $t(d.state)} · {d.pct} %</span>
+      <span class="tag">{$tn(d.name)}</span>{#if d.clock !== 1}<span class="tag">{$t('Clock {n} %', { n: Math.round(d.clock * 100) })}</span>{/if}
+      {#if d.alt}<span class="tag">{$t('Alternate recipe')}</span>{/if}{#if d.purity}<span class="tag">{$t('{p} node', { p: PUR[d.purity] ? $t(PUR[d.purity]) : d.purity })}</span>{/if}</div>
+    {#if d.why}<p class:why={d.block !== 'full'} class:muted={d.block === 'full'}>{$lx(d.why)}{d.block === 'full' ? ' — ' + $t('buffer, no action needed') : ''}</p>{/if}
+    <table class="t"><thead><tr><th>{$t('Item')}</th><th class="n">{$t('Actual')}</th><th class="n">{$t('Target /min')}</th></tr></thead><tbody>
       {#each d.out as p}<tr><td>{$tn(p.item)}</td><td class="n">{fmtNum(p.rate)}</td><td class="n">{fmtNum(p.max)}</td></tr>{/each}
       {#each d.inp as p}<tr><td class="muted">← {$tn(p.item)}</td><td class="n">{fmtNum(p.rate)}</td><td class="n">{fmtNum(p.max)}</td></tr>{/each}
     </tbody></table>
-    <p class="muted small">{fmtMW(d.power)} · {$t('Netz {n}', { n: d.circuit ?? '—' })}{d.by ? ' · ' + $t('gebaut von {name}', { name: d.by }) : ''}{d.since != null ? ' · ' + $t('Zustand seit {t}', { t: dur(d.since / 60) }) : ''}</p>
+    <p class="muted small">{fmtMW(d.power)} · {$t('Grid {n}', { n: d.circuit ?? '—' })}{d.by ? ' · ' + $t('built by {name}', { name: d.by }) : ''}{d.since != null ? ' · ' + $t('in this state for {t}', { t: dur(d.since / 60) }) : ''}</p>
 
   {:else if o.kind === 'generator'}
-    <div class="row"><span class="tag">{d.producing ? $t('erzeugt') : $t('steht')}</span><span class="tag">{fmtMW(d.cap)}</span></div>
-    {#if d.fuel}<p>{$t('Brennstoff:')} <b>{$tn(d.fuel)}</b>{d.fuel_rate ? ' · ' + fmtNum(d.fuel_rate) + '/min' : ''}</p>{/if}
-    {#if d.fuel_minutes != null}<p>{$t('Vorrat im Gebäude reicht')} <b>{dur(d.fuel_minutes)}</b></p>{/if}
+    <div class="row"><span class="tag">{d.producing ? $t('producing') : $t('stopped')}</span><span class="tag">{fmtMW(d.cap)}</span></div>
+    {#if d.fuel}<p>{$t('Fuel:')} <b>{$tn(d.fuel)}</b>{d.fuel_rate ? ' · ' + fmtNum(d.fuel_rate) + '/min' : ''}</p>{/if}
+    {#if d.fuel_minutes != null}<p>{$t('Fuel in the building lasts')} <b>{dur(d.fuel_minutes)}</b></p>{/if}
 
   {:else if o.kind === 'node'}
-    <div class="row"><span class="tag">{$tn(d.item) || '?'}</span><span class="tag">{PUR[d.purity] ? $t(PUR[d.purity]) : $t('Reinheit unbekannt')}</span>
-      <span class="tag">{d.used ? $t('belegt') : $t('frei')}</span></div>
+    <div class="row"><span class="tag">{$tn(d.item) || '?'}</span><span class="tag">{PUR[d.purity] ? $t(PUR[d.purity]) : $t('Purity unknown')}</span>
+      <span class="tag">{d.used ? $t('occupied') : $t('free')}</span></div>
     {#if d.used}<p>{$tn(d.extractor)} · {fmtNum(d.rate)} /min</p>{/if}
 
   {:else if o.kind === 'factory'}
-    <div class="row"><span class="tag">{$t('{n} Maschinen', { n: d.n })}</span><span class="tag">{fmtMW(d.power)}</span>
-      {#if d.renamed}<span class="tag" title={$t('Automatischer Name: {name}', { name: $lx(d.auto) })}>{$t('umbenannt')}</span>{/if}
-      {#if d.status && d.status !== 'aktiv'}<span class="tag">{$t(({ aufbau: 'im Aufbau', puffer: 'Puffer', stillgelegt: 'stillgelegt' } as any)[d.status] || d.status)}</span>{/if}</div>
-    <div class="states">{#each Object.entries(d.states).filter(([s]) => s !== 'steht') as [s, n]}<span><span class="dot" style="background:{STATE_COLOR[s]}"></span>{n} {$t(s)}</span>{/each}
-      {#if d.full}<span><span class="dot" style="background:#8a857c"></span>{$t('{n} warten (Ausgang voll)', { n: d.full })}</span>{/if}
-      {#if d.starved}<span><span class="dot" style="background:{C.bad}"></span>{$t('{n} Materialmangel', { n: d.starved })}</span>{/if}</div>
+    <div class="row"><span class="tag">{$t('{n} machines', { n: d.n })}</span><span class="tag">{fmtMW(d.power)}</span>
+      {#if d.renamed}<span class="tag" title={$t('Automatic name: {name}', { name: $lx(d.auto) })}>{$t('renamed')}</span>{/if}
+      {#if d.status && d.status !== 'active'}<span class="tag">{$t(({ building: 'under construction', buffer: 'buffer', decommissioned: 'decommissioned' } as any)[d.status] || d.status)}</span>{/if}</div>
+    <div class="states">{#each Object.entries(d.states).filter(([s]) => s !== 'stopped') as [s, n]}<span><span class="dot" style="background:{STATE_COLOR[s]}"></span>{n} {$t(s)}</span>{/each}
+      {#if d.full}<span><span class="dot" style="background:#8a857c"></span>{$t('{n} waiting (output full)', { n: d.full })}</span>{/if}
+      {#if d.starved}<span><span class="dot" style="background:{C.bad}"></span>{$t('{n} missing input', { n: d.starved })}</span>{/if}</div>
     <div class="grid">
-      <div><h3>{$t('Liefert')}</h3>{#each d.out as p}<div class="io"><span>{$tn(p.item)}</span><span class="num">{fmtNum(p.rate)}</span></div>{:else}<div class="muted small">{$t('nichts netto')}</div>{/each}</div>
-      <div><h3>{$t('Braucht')}</h3>{#each d.inp as p}<div class="io"><span>{$tn(p.item)}</span><span class="num">{fmtNum(p.rate)}</span></div>{:else}<div class="muted small">{$t('nichts von außen')}</div>{/each}</div>
+      <div><h3>{$t('Supplies')}</h3>{#each d.out as p}<div class="io"><span>{$tn(p.item)}</span><span class="num">{fmtNum(p.rate)}</span></div>{:else}<div class="muted small">{$t('nothing net')}</div>{/each}</div>
+      <div><h3>{$t('Needs')}</h3>{#each d.inp as p}<div class="io"><span>{$tn(p.item)}</span><span class="num">{fmtNum(p.rate)}</span></div>{:else}<div class="muted small">{$t('nothing from outside')}</div>{/each}</div>
     </div>
     {#if stalled.length}
-      <div class="sec"><h3>{$t('Materialmangel')}</h3>
+      <div class="sec"><h3>{$t('Missing input')}</h3>
         {#each stalled.slice(0, 12) as m}<button class="lk" onclick={() => onpick('machine:' + m.id)}><span class="dot" style="background:{C.bad}"></span>{$tn(m.recipe || m.name)}<span class="muted small">&nbsp;{$lx(m.why)}</span></button>{/each}
       </div>
     {/if}
     <div class="acts">
-      <button class="btn" onclick={() => (show3d = true)}>{$t('3D-Ansicht')}</button>
-      {#if onpin}<button class="btn" onclick={() => onpin(o)}>{$t('Name und Status ändern')}</button>{/if}
+      <button class="btn" onclick={() => (show3d = true)}>{$t('3D view')}</button>
+      {#if onpin}<button class="btn" onclick={() => onpin(o)}>{$t('Rename / set status')}</button>{/if}
     </div>
     {#if show3d}
       {#await import('./Factory3D.svelte')}
-        <p class="muted small">{$t('3D-Ansicht lädt …')}</p>
+        <p class="muted small">{$t('Loading 3D view …')}</p>
       {:then F}
         <F.default machines={members} title={d.name} onclose={() => (show3d = false)}
           flow={near(members)} />
       {:catch e}
-        <p class="err3d">{$t('3D-Ansicht ließ sich nicht laden ({err}). Seite neu laden und nochmal versuchen.', { err: e?.message || e })}</p>
+        <p class="err3d">{$t('The 3D view could not be loaded ({err}). Reload the page and try again.', { err: e?.message || e })}</p>
       {/await}
     {/if}
 
   {:else if o.kind === 'collectible'}
-    <p>{d.kind === 'droppod' ? $t('Noch nicht eingesammelt. Höhe {z} m — Absturzstelle, noch nicht geplündert.', { z: d.pos[2] }) : $t('Noch nicht eingesammelt. Höhe {z} m.', { z: d.pos[2] })}</p>
-    <p class="muted small">{$t('Stand des letzten Saves; eingesammelte Objekte verschwinden mit dem nächsten Autosave.')}</p>
+    <p>{d.kind === 'droppod' ? $t('Not collected yet. Height {z} m — crash site, not looted yet.', { z: d.pos[2] }) : $t('Not collected yet. Height {z} m.', { z: d.pos[2] })}</p>
+    <p class="muted small">{$t('As of the last save; collected objects disappear with the next autosave.')}</p>
   {:else if o.kind === 'pin'}
     <p class="pre">{d.text}</p>
     <p class="muted small">{d.author} · {new Date(d.t * 1000).toLocaleString(locale(), { dateStyle: 'short', timeStyle: 'short' })}</p>
-    {#if onpin}<button class="btn" onclick={() => onpin(o)}>{$t('Bearbeiten')}</button>{/if}
+    {#if onpin}<button class="btn" onclick={() => onpin(o)}>{$t('Edit')}</button>{/if}
   {/if}
 </div>
 
