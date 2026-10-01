@@ -149,7 +149,7 @@ def test_api(saves, tmp_path, monkeypatch):
     srv.socket = ctx.wrap_socket(srv.socket, server_side=True)
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     url = 'api://127.0.0.1:%d' % srv.server_address[1]
-    monkeypatch.setattr(source, '_token', [''])
+    monkeypatch.setattr(source, '_token', '')
     try:
         monkeypatch.setattr(source, 'PASSWORD', 'wrong')
         with pytest.raises(source.SourceError, match='401'):
@@ -159,7 +159,7 @@ def test_api(saves, tmp_path, monkeypatch):
         assert name == 'World_autosave_1.sav' and changed and open(path, 'rb').read() == SAV
         assert source.fetch_latest(url)[3] is False                  # same version → no download
         assert calls.count('DownloadSaveGame') == 1
-        source._token[0] = 'expired'                                 # token invalid → log in again
+        source._token = 'expired'                                    # token invalid → log in again
         assert source.fetch_latest(url)[1] == 'World_autosave_1.sav'
     finally:
         srv.shutdown()

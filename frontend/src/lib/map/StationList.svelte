@@ -4,17 +4,21 @@
   import { C, MODE_LABEL } from '../fmt';
   import { tn, both } from '../names';
   import { matches, fuzzy } from '../fuzzy';
-  import { t, locale } from '../i18n';
+  import { t, tr, locale } from '../i18n';
+  import { stationKey, stationVisible, type StationFilter } from '../scene';
 
-  let { q = $bindable(''), F = $bindable(), open = $bindable(false), selKey = '', onpick, onfit }: {
-    q?: string; F: { truck: boolean; train: boolean; load: boolean; unload: boolean }; open?: boolean; selKey?: string;
+  let { q = $bindable(''), filters = $bindable(), open = $bindable(false), selKey = '', onpick, onfit }: {
+    q?: string; filters: StationFilter; open?: boolean; selKey?: string;
     onpick: (key: string) => void; onfit: (x0: number, y0: number, x1: number, y1: number) => void;
   } = $props();
   let tab = $state<'stations' | 'items'>('stations');
+  let search: HTMLInputElement;
+  /** Focus the search field (map shortcut "/") */
+  export function focus() { search?.focus(); }
+  const CHIPS: [keyof StationFilter, string][] = [['truck', tr('Truck')], ['train', tr('Train')], ['load', tr('Load')], ['unload', tr('Unload')]];
 
   const allSt = $derived($stations ? [...$stations.trains.map(s => ({ ...s, kind: 'train' as const })), ...$stations.trucks.map(s => ({ ...s, kind: 'truck' as const }))] : []);
-  const visSt = $derived(allSt.filter(s => F[s.kind] && (s.mode === 'mixed' || s.mode === 'none' ? F.load || F.unload : F[s.mode as 'load' | 'unload']))
-    .filter(s => matches(q, s.name, ...s.items.map(i => both(i.item)))));
+  const visSt = $derived(allSt.filter(s => stationVisible(s, filters) && matches(q, s.name, ...s.items.map(i => both(i.item)))));
   const items = $derived.by(() => {
     const m = new Map<string, { item: string; load: number; unload: number; amount: number }>();
     for (const s of allSt) for (const i of s.items) {
@@ -43,11 +47,11 @@
       <button class:on={tab === 'items'} onclick={() => (tab = 'items')}>{$t('Items')} <span class="muted">{items.length}</span></button>
     </div>
     <div class="srch">
-      <input id="q" class="field" type="search" bind:value={q} placeholder={$t('Search stations, items or machines')} autocomplete="off" />
+      <input bind:this={search} class="field" type="search" bind:value={q} placeholder={$t('Search stations, items or machines')} autocomplete="off" />
     </div>
     <div class="chips">
-      {#each [['truck', $t('Truck')], ['train', $t('Train')], ['load', $t('Load')], ['unload', $t('Unload')]] as [k, l]}
-        <button class="chip" class:on={F[k as keyof typeof F]} onclick={() => (F[k as keyof typeof F] = !F[k as keyof typeof F])}>
+      {#each CHIPS as [k, l]}
+        <button class="chip" class:on={filters[k]} onclick={() => (filters[k] = !filters[k])}>
           {#if k === 'load' || k === 'unload'}<span class="dot" style="background:{C[k]}"></span>{/if}{l}</button>
       {/each}
     </div>
@@ -62,11 +66,11 @@
     <div class="list">
       {#if tab === 'stations'}
         {#each visSt as s (s.id)}
-          {@const k = 'station:' + s.id.split('.').pop()}
+          {@const k = stationKey(s)}
           <button class="row" class:sel={selKey === k} onclick={() => { onpick(k); open = false; }}>
             <span class="mk {s.kind}" style="background:{C[s.mode]}"></span>
             <span class="tx"><span class="nm">{s.name}</span><span class="sub">{$t(MODE_LABEL[s.mode])}{s.items.length ? ' · ' + s.items.map(i => $tn(i.item)).join(', ') : ''}</span></span>
-            {#if s.kind === 'truck' && s.fill != null}<span class="fl" title={$t('{n} % full', { n: Math.round(s.fill * 100) })}><i style="height:{s.fill * 100}%;background:{s.fill > .9 ? C.bad : '#c3bfb7'}"></i></span>{/if}
+            {#if s.kind === 'truck' && s.fill != null}<span class="fl" title={$t('{n} % full', { n: Math.round(s.fill * 100) })}><i style="height:{s.fill * 100}%;background:{s.fill > .9 ? C.bad : C.neutral}"></i></span>{/if}
           </button>
         {:else}<div class="none">{$t('No station matches the search and filters.')}</div>{/each}
       {:else}

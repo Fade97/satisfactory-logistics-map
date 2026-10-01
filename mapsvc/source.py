@@ -22,7 +22,9 @@ FRESH = 10                                  # younger than 10 s: may still be be
 
 
 class SourceError(Exception):
-    pass
+    def __init__(self, msg, status=None):
+        super().__init__(msg)
+        self.status = status                # HTTP status of the server API, if any
 
 
 def describe(src=None):
@@ -58,7 +60,7 @@ def _paths():
 def _take(name, mtime, download, version=None):
     """Download a new save if name/time differ from last time. download(dst) writes the file."""
     local, stamp = _paths()
-    prev = open(stamp).read().strip() if os.path.exists(stamp) else ''
+    prev = _read(stamp).strip() if os.path.exists(stamp) else ''
     tag = '%s|%s' % (name, version or int(mtime))
     changed = tag != prev or not os.path.exists(local)
     if changed and time.time() - mtime < FRESH and os.path.exists(local):
@@ -71,8 +73,14 @@ def _take(name, mtime, download, version=None):
             raise SourceError('Save %s is empty or incomplete' % name)
         os.replace(tmp, local)
         os.utime(local, (mtime, mtime))
-        open(stamp, 'w').write(tag)
+        with open(stamp, 'w') as f:
+            f.write(tag)
     return local, name, mtime, changed
+
+
+def _read(path):
+    with open(path) as f:
+        return f.read()
 
 
 def _newest(entries):
@@ -94,7 +102,7 @@ def _dir(path):
     if not any(e[0] != 'latest.sav' and fnmatch.fnmatch(e[0], PATTERN) for e in entries):
         local, stamp = _paths()                      # only a previously fetched latest.sav present → use it
         if os.path.exists(local):
-            name = open(stamp).read().split('|')[0] if os.path.exists(stamp) else 'latest.sav'
+            name = _read(stamp).split('|')[0] if os.path.exists(stamp) else 'latest.sav'
             return local, os.path.basename(name), os.path.getmtime(local), False
     name, mtime, full = _newest(entries)
     return _take(name, mtime, lambda dst: shutil.copyfile(full, dst))
@@ -163,15 +171,18 @@ def _ftptime(v):
 
 
 # ---------------------------------------------------------------- server API (dedicated server, HTTPS)
-_token = [TOKEN]
-_CTX = ssl._create_unverified_context()          # the server uses a self-signed certificate
+_token = TOKEN                                  # current auth token (SAVE_TOKEN or from PasswordLogin)
+_CTX = ssl.create_default_context()             # the server uses a self-signed certificate → no verification
+_CTX.check_hostname = False
+_CTX.verify_mode = ssl.CERT_NONE
+NET_EPOCH_TICKS = 621355968000000000            # .NET/UE FDateTime ticks (100 ns since 0001-01-01) at the Unix epoch
 
 
 def _call(base, fn, data=None, raw_to=None):
     body = json.dumps({'function': fn, 'data': data or {}}).encode()
     h = {'Content-Type': 'application/json'}
-    if _token[0]:
-        h['Authorization'] = 'Bearer ' + _token[0]
+    if _token:
+        h['Authorization'] = 'Bearer ' + _token
     req = urllib.request.Request(base, body, h)
     try:
         with urllib.request.urlopen(req, context=_CTX, timeout=120) as r:
@@ -185,24 +196,25 @@ def _call(base, fn, data=None, raw_to=None):
             err = json.loads(e.read()).get('errorCode', '')
         except Exception:
             err = ''
-        raise SourceError('Server API %s: %s %s' % (fn, e.code, err))
+        raise SourceError('Server API %s: %s %s' % (fn, e.code, err), status=e.code)
     except OSError as e:
         raise SourceError('Server API %s not reachable: %s' % (describe(), e))
 
 
 def _api(u, retry=True):
+    global _token
     base = 'https://%s:%d/api/v1' % (u.hostname, u.port or 7777)
-    if not _token[0]:
+    if not _token:
         if not PASSWORD:
             raise SourceError('Server API needs SAVE_PASSWORD (admin password) or SAVE_TOKEN')
         r = _call(base, 'PasswordLogin', {'MinimumPrivilegeLevel': 'Administrator', 'Password': PASSWORD})
-        _token[0] = r['data']['authenticationToken']
+        _token = r['data']['authenticationToken']
     try:
         d = _call(base, 'EnumerateSessions')['data']
     except SourceError as e:
-        if TOKEN or not retry or ('401' not in str(e) and '403' not in str(e)):
+        if TOKEN or not retry or e.status not in (401, 403):
             raise
-        _token[0] = ''                              # token expired → log in again once
+        _token = ''                              # token expired → log in again once
         return _api(u, retry=False)
     sessions = d.get('sessions') or []
     if not sessions:
@@ -224,7 +236,7 @@ def _api(u, retry=True):
 def _apitime(v):
     """API saveDateTime ('2024.09.21-17.02.33' or FDateTime ticks, UTC); unknown format → now."""
     if v.isdigit() and len(v) >= 17:               # 100 ns ticks since 0001-01-01
-        return (int(v) - 621355968000000000) / 1e7
+        return (int(v) - NET_EPOCH_TICKS) / 1e7
     for fmt in ('%Y.%m.%d-%H.%M.%S', '%Y-%m-%dT%H:%M:%S', '%Y%m%d%H%M%S'):
         try:
             return datetime.datetime.strptime(v[:19], fmt).replace(tzinfo=datetime.timezone.utc).timestamp()

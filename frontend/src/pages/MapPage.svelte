@@ -1,94 +1,111 @@
 <script lang="ts">
   import { onMount, onDestroy, untrack } from 'svelte';
-  import { MapView, type MapObj } from '../lib/mapview';
-  import { live, stations, factory, geo, nodes, powerlines, pins, trails, loadPins, flow, collectibles } from '../lib/api';
+  import { MediaQuery } from 'svelte/reactivity';
+  import { MapView, glideFrom, GLIDE_MS, type MapObj, type FactoryBox } from '../lib/mapview';
+  import { live, stations, factory, geo, nodes, powerlines, pins, trails, loadPins, flow, collectibles, loadDetail } from '../lib/api';
   import { route, replaceQuery } from '../lib/router';
-  import { LAYERS, stationsObjs, liveObjs, factoryObjs, nodeObjs, pinObjs, applyGeo, factoryColor, collectibleObjs } from '../lib/scene';
-  import { C, MODE_LABEL, fmtNum } from '../lib/fmt';
+  import { LAYERS, stationsObjs, liveObjs, factoryObjs, nodeObjs, pinObjs, applyGeo, collectibleObjs, factoryBoxes, stationVisible,
+           type StationFilter } from '../lib/scene';
+  import { C, MOBILE_QUERY, factoryStatusColor } from '../lib/fmt';
+  import { KEYS, loadJson, saveJson } from '../lib/storage';
+  import type { Factory, Frame, Stations } from '../lib/types';
   import Detail from '../lib/Detail.svelte';
   import PinEditor from '../lib/PinEditor.svelte';
   import StationList from '../lib/map/StationList.svelte';
   import HeightPanel from '../lib/map/HeightPanel.svelte';
   import TimeTravel from '../lib/map/TimeTravel.svelte';
-  import { matches, fuzzy } from '../lib/fuzzy';
-  import ItemPicker from '../lib/ItemPicker.svelte';
+  import LayerMenu from '../lib/map/LayerMenu.svelte';
+  import Legend from '../lib/map/Legend.svelte';
+  import DrawBar from '../lib/map/DrawBar.svelte';
+  import MeasurePanel from '../lib/map/MeasurePanel.svelte';
+  import FlowPanel from '../lib/map/FlowPanel.svelte';
+  import MapBar from '../lib/map/MapBar.svelte';
+  import { heatOverlay, measureOverlay, trailsOverlay, pinsOverlay } from '../lib/map/overlays';
+  import { computeFlow, flowItemList } from '../lib/map/flow';
+  import { tipTitle, tipText } from '../lib/map/tooltip';
+  import { attachGestures, type Pt } from '../lib/map/gestures';
+  import { minPoints, type Draft } from '../lib/map/draw';
+  import { matches } from '../lib/fuzzy';
   import { prefs, rememberView } from '../lib/prefs';
   import { tn, both } from '../lib/names';
-  import { t, lx, locale } from '../lib/i18n';
+  import { t, locale } from '../lib/i18n';
 
   let { kiosk = false, followKey = '' }: { kiosk?: boolean; followKey?: string } = $props();
 
+  const DETAIL_W = 380;          // desktop: the detail card covers this much of the right edge
+  const SHEET_H = 280;           // phone: follow mode keeps the target above the bottom sheet
+
   let cv: HTMLCanvasElement;
-  let V: MapView | null = null;
+  let view: MapView | null = null;
+  let stationList = $state<StationList>();       // absent in kiosk mode
   let sel = $state<MapObj | null>(null);
-  let follow = $state<string>(followKey || ($prefs.followMe && $prefs.me ? 'player:' + $prefs.me : ''));
+  // followKey (kiosk) is only the initial target; afterwards the user decides
+  let follow = $state<string>(untrack(() => followKey) || ($prefs.followMe && $prefs.me ? 'player:' + $prefs.me : ''));
   let q = $state('');
-  let F = $state({ truck: true, train: true, load: true, unload: true });
-  let layers = $state<Record<string, boolean>>(Object.fromEntries(
-    LAYERS.map(([k, , on]) => [k, JSON.parse(localStorage.getItem('fgmap.layers') || '{}')[k] ?? on])));
+  let filters = $state<StationFilter>({ truck: true, train: true, load: true, unload: true });
+  const savedLayers = loadJson<Record<string, boolean>>(KEYS.layers, {});
+  let layers = $state<Record<string, boolean>>(Object.fromEntries(LAYERS.map(([k, , on]) => [k, savedLayers[k] ?? on])));
   let showLayers = $state(false), showList = $state(false), showLegend = $state(false);
   let tip = $state<{ x: number; y: number; o: MapObj } | null>(null);
-  let draw = $state<null | { shape: 'point' | 'line' | 'area'; pts: number[][] }>(null);
+  let draw = $state<Draft | null>(null);
   let editPin = $state<any>(null);
   let flowItem = $state<string>('');            // item flow: selected item, '' = off
   let showFlow = $state(false);
   // Height filter: floors derived from machine heights (clusters), range [from, to] in metres
   let showZ = $state(false);
+  let zRange = $state<[number, number] | null>(null);
   // Time travel: the selected minute frame replaces the live objects until the bar is closed
   let showTT = $state(false);
-  let ttFrame: any = null;
-  let zRange = $state<[number, number] | null>(null);
+  let ttFrame: Frame | null = null;
   // Measuring: points in world coordinates
   let measure = $state<number[][] | null>(null);
   // Pick mode: #/map?pick=site — one tap sets the planner's build site and jumps back
   let pickMode = $state<string | null>($route.q.get('pick'));
   let scaleTxt = $state(''), scaleW = $state(80);
-  let isMobile = $state(matchMedia('(max-width: 760px)').matches);
-  matchMedia('(max-width: 760px)').addEventListener('change', e => (isMobile = e.matches));
+  const mobile = new MediaQuery(MOBILE_QUERY);
+  const isMobile = $derived(mobile.current);
 
-  let objs = { st: [] as MapObj[], lv: [] as MapObj[], fac: [] as MapObj[], nd: [] as MapObj[], pn: [] as MapObj[], co: [] as MapObj[] };
+  // Map objects per data source; rebuild() merges them in drawing order
+  const objs = { stations: [] as MapObj[], live: [] as MapObj[], factory: [] as MapObj[], nodes: [] as MapObj[], pins: [] as MapObj[], collectibles: [] as MapObj[] };
+  // Factory outlines: coloured by the live state, or by the time travel frame while one is shown
+  let boxes: FactoryBox[] = [];
   function rebuild() {
-    if (!V) return;
-    const byKey = new Map(V.objs.map(o => [o.key, o]));
-    V.objs = [...objs.co, ...objs.fac, ...objs.nd, ...objs.st, ...objs.pn, ...objs.lv];
+    if (!view) return;
+    view.objs = [...objs.collectibles, ...objs.factory, ...objs.nodes, ...objs.stations, ...objs.pins, ...objs.live];
     // move the current selection over to the new object
-    if (sel) { const n = V.objs.find(o => o.key === sel!.key); if (n) { sel = n; V.sel = n; } }
-    V.boxes = ($factory?.factories || []).map(f => ({ box: f.box, color: factoryColor(f), layer: 'factories' }));
-    applyFilter(); V.invalidate();
-    void byKey;
+    if (sel) { const n = view.objs.find(o => o.key === sel!.key); if (n) { sel = n; view.sel = n; } }
+    view.boxes = boxes;
+    applyFilter(); view.invalidate();
   }
 
   // --- Data → objects. When switching back to the map the stores are already filled and the effects
-  // run before onMount — V doesn't exist yet then; ingestAll() catches up after setup.
-  function ingestStations(s: any) { objs.st = stationsObjs(s); applyGeo(V!, $geo, $powerlines, s); }
+  // run before onMount — the view doesn't exist yet then; ingestAll() catches up after setup.
+  function ingestStations(s: Stations) { objs.stations = stationsObjs(s); applyGeo(view!, $geo, $powerlines, s); }
+  function ingestFactory(f: Factory) { objs.factory = factoryObjs(f); if (!ttFrame) boxes = factoryBoxes(f.factories); }
   function ingestAll() {
-    if (!V) return;
+    if (!view) return;
     if ($stations) ingestStations($stations);
-    if ($factory) objs.fac = factoryObjs($factory);
-    if ($nodes) objs.nd = nodeObjs($nodes);
-    if ($collectibles) objs.co = collectibleObjs($collectibles);
-    objs.pn = pinObjs($pins);
-    if ($live) objs.lv = liveObjs($live);
-    applyGeo(V, $geo, $powerlines, $stations);
+    if ($factory) ingestFactory($factory);
+    if ($nodes) objs.nodes = nodeObjs($nodes);
+    if ($collectibles) objs.collectibles = collectibleObjs($collectibles);
+    objs.pins = pinObjs($pins);
+    if ($live) objs.live = liveObjs($live);
+    applyGeo(view, $geo, $powerlines, $stations);
     rebuild();
   }
-  $effect(() => { const s = $stations; if (s) untrack(() => { if (V) { ingestStations(s); rebuild(); } }); });
-  $effect(() => { const f = $factory; if (f) untrack(() => { if (V) { objs.fac = factoryObjs(f); rebuild(); } }); });
-  $effect(() => { const n = $nodes; if (n) untrack(() => { if (V) { objs.nd = nodeObjs(n); rebuild(); } }); });
-  $effect(() => { const c = $collectibles; if (c) untrack(() => { if (V) { objs.co = collectibleObjs(c); rebuild(); } }); });
-  $effect(() => { const p = $pins; untrack(() => { if (V) { objs.pn = pinObjs(p); rebuild(); } }); });
-  $effect(() => { const g = $geo, pl = $powerlines; untrack(() => { if (V) { applyGeo(V, g, pl, $stations); V.invalidate(); } }); });
+  $effect(() => { const s = $stations; if (s) untrack(() => { if (view) { ingestStations(s); rebuild(); } }); });
+  $effect(() => { const f = $factory; if (f) untrack(() => { if (view) { ingestFactory(f); rebuild(); } }); });
+  $effect(() => { const n = $nodes; if (n) untrack(() => { if (view) { objs.nodes = nodeObjs(n); rebuild(); } }); });
+  $effect(() => { const c = $collectibles; if (c) untrack(() => { if (view) { objs.collectibles = collectibleObjs(c); rebuild(); } }); });
+  $effect(() => { const p = $pins; untrack(() => { if (view) { objs.pins = pinObjs(p); rebuild(); } }); });
+  $effect(() => { const g = $geo, pl = $powerlines; untrack(() => { if (view) { applyGeo(view, g, pl, $stations); view.invalidate(); } }); });
   $effect(() => {
     const lv = $live; if (!lv) return;
     untrack(() => {
-      if (!V || ttFrame) return;
-      const old = new Map(objs.lv.map(o => [o.key, o]));
+      if (!view || ttFrame) return;
       const nw = liveObjs(lv);
-      for (const o of nw) {            // glide smoothly to the new position
-        const p = old.get(o.key);
-        if (p) { o.sx = p.x; o.sy = p.y; o.tx = o.x; o.ty = o.y; o.x = p.x; o.y = p.y; o.t0 = performance.now(); }
-      }
-      objs.lv = nw; rebuild();
+      glideFrom(nw, objs.live);                     // glide smoothly to the new position
+      objs.live = nw; rebuild();
     });
   });
   // Players who are not online are not followed (their character just stands around in the game).
@@ -102,55 +119,40 @@
   $effect(() => {                      // Follow mode: MapView moves the camera along in the render loop (same interpolation as the dot)
     const f = followState === 'active' ? follow : '', s = sel, mob = isMobile;
     untrack(() => {
-      if (!V) return;
-      V.followKey = f || null;
-      V.followOff = { x: !mob && s ? 380 : 0, y: mob && s ? 280 : 0 };
+      if (!view) return;
+      view.followKey = f || null;
+      view.followOff = { x: !mob && s ? DETAIL_W : 0, y: mob && s ? SHEET_H : 0 };
       if (f) {                            // zoom in once when enabled, afterwards just track
-        const o = V.objs.find(x => x.key === f);
-        if (o && V.k < 1) { V.k = 1; V.invalidate(); }
-        V.redraw();
+        const o = view.objs.find(x => x.key === f);
+        if (o && view.k < 1) { view.k = 1; view.invalidate(); }
+        view.redraw();
       }
     });
   });
-  $effect(() => { const t = $trails; untrack(() => { if (V) V.redraw(); void t; }); });
+  $effect(() => { void $trails; untrack(() => view?.redraw()); });
 
   // --- Item flow: producers, consumers, stations, nodes and belts/pipes of one item
-  const flowInfo = $derived.by(() => {
-    const it = flowItem;
-    if (!it) return null;
-    const keys = new Set<string>();
-    let prod = 0, cons = 0, np = 0, nc = 0, ns = 0;
-    for (const m of $factory?.machines || []) {
-      const o = m.out.find(x => x.item === it), i = m.inp.find(x => x.item === it);
-      if (o) { keys.add('machine:' + m.id); prod += o.rate; np++; }
-      if (i) { keys.add('machine:' + m.id); cons += i.rate; nc++; }
-    }
-    for (const g of $factory?.generators || []) if (g.fuel === it) { keys.add('generator:' + g.id); nc++; }
-    for (const s of [...($stations?.trucks || []), ...($stations?.trains || [])])
-      if (s.items.some(x => x.item === it)) { keys.add('station:' + s.id.split('.').pop()); ns++; }
-    for (const n of $nodes || []) if (n.item === it) keys.add('node:' + n.id);
-    for (const f of $factory?.factories || []) if (f.out.some(o => o.item === it) || f.inp.some(o => o.item === it)) keys.add('factory:' + f.key);
-    return { keys, paths: ($flow || {})[it] || [], prod, cons, np, nc, ns };
-  });
-  const flowItems = $derived([...new Set([...Object.keys($flow || {}), ...($factory?.balance || []).map(b => b.item)])].sort((a, b) => a.localeCompare(b, locale())));
+  const flowInfo = $derived(computeFlow(flowItem, $factory, $stations, $nodes, $flow));
+  const flowItems = $derived(flowItemList($flow, $factory, locale()));
   $effect(() => {
     const fi = flowInfo;
     untrack(() => {
-      if (!V) return;
-      V.flowFocus = fi ? { keys: fi.keys, paths: fi.paths, color: '#f5f2ea' } : null;
+      if (!view) return;
+      view.flowFocus = fi ? { keys: fi.keys, paths: fi.paths, color: C.light } : null;
       // make machine and node layers visible while item flow is active
-      if (fi) { V.layers = { ...layers, machines: true, nodes: true, generators: true }; }
-      else V.layers = { ...layers };
-      V.invalidate(); writeHash();
+      if (fi) { view.layers = { ...layers, machines: true, nodes: true, generators: true }; }
+      else view.layers = { ...layers };
+      view.invalidate(); writeHash();
     });
   });
   function flowFit() {
-    if (!V || !flowInfo) return;
-    const pts = [...V.objs.filter(o => flowInfo!.keys.has(o.key) && o.kind !== 'node').map(o => [o.x, o.y]), ...flowInfo.paths.flat()];
+    if (!view || !flowInfo) return;
+    const pts = [...view.objs.filter(o => flowInfo!.keys.has(o.key) && o.kind !== 'node').map(o => [o.x, o.y]), ...flowInfo.paths.flat()];
     if (!pts.length) return;
     const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
-    V.fit(Math.min(...xs) - 100, Math.min(...ys) - 100, Math.max(...xs) + 100, Math.max(...ys) + 100);
+    view.fit(Math.min(...xs) - 100, Math.min(...ys) - 100, Math.max(...xs) + 100, Math.max(...ys) + 100);
   }
+  function closeFlow() { flowItem = ''; showFlow = false; }
 
   // Collectibles: "62 of 106 left" in the layer menu
   const collectCount = $derived.by(() => {
@@ -164,109 +166,99 @@
     } as Record<string, string>;
   });
 
-  $effect(() => { const r = zRange; untrack(() => { if (V) { V.zRange = r ? [r[0] - 3, r[1] + 3] : null; V.invalidate(); } }); });
+  $effect(() => { const r = zRange; untrack(() => { if (view) { view.zRange = r ? [r[0] - 3, r[1] + 3] : null; view.invalidate(); } }); });
 
-  // --- Measuring: distance, area, height
-  const measureInfo = $derived.by(() => {
-    const m = measure;
-    if (!m || m.length < 2) return null;
-    let len = 0;
-    for (let i = 1; i < m.length; i++) len += Math.hypot(m[i][0] - m[i - 1][0], m[i][1] - m[i - 1][1]);
-    let area = 0;
-    if (m.length >= 3) { for (let i = 0; i < m.length; i++) { const a = m[i], b = m[(i + 1) % m.length]; area += a[0] * b[1] - b[0] * a[1]; } area = Math.abs(area) / 2; }
-    return { len, area, direct: Math.hypot(m[m.length - 1][0] - m[0][0], m[m.length - 1][1] - m[0][1]) };
-  });
+  function setMeasure(m: number[][] | null) { measure = m; view?.redraw(); }
 
   // --- Time travel: frame → map objects (players/trains/trucks) + factory outline by the state at that time
-  function applyFrame(t: number | null, f: any) {
+  function applyFrame(_t: number | null, f: Frame | null) {
     ttFrame = f;
-    if (!V) return;
+    if (!view) return;
     if (!f) {                                      // back to live
-      if ($live) objs.lv = liveObjs($live);
-      V.boxes = ($factory?.factories || []).map(x => ({ box: x.box, color: factoryColor(x), layer: 'factories' }));
+      if ($live) objs.live = liveObjs($live);
+      boxes = factoryBoxes($factory?.factories || []);
       rebuild(); return;
     }
-    const pl = f.p.map((x: any) => ({ name: x[0], pos: [x[1] * 100, x[2] * 100, 0], online: !!x[3] }));
-    const tr = f.tr.map((x: any) => ({ name: x[0], pos: [x[1] * 100, x[2] * 100, 0], speed: x[3], docked: !!x[4], derailed: false }));
+    const at = (x: number, y: number) => [x * 100, y * 100, 0];      // frame metres → live centimetres
+    const players = f.p.map(([name, x, y, on]) => ({ name, pos: at(x, y), online: !!on }));
+    const trains = f.tr.map(([name, x, y, speed, docked]) => ({ name, pos: at(x, y), speed, docked: !!docked, derailed: false }));
     const liveTk = new Map(($live?.trucks || []).map(v => [v.id || v.name, v]));
-    const tk = f.tk.map((x: any) => ({ ...(liveTk.get(x[0]) || { name: x[0], type: 'Truck' }), id: x[0], pos: [x[1] * 100, x[2] * 100, 0], speed: x[3] }));
-    const old = new Map(objs.lv.map(o => [o.key, o]));
-    const nw = liveObjs({ ...($live as any), players: pl, trains: tr, trucks: tk, source: 'frm' });
-    for (const o of nw) { const p = old.get(o.key); if (p) { o.sx = p.x; o.sy = p.y; o.tx = o.x; o.ty = o.y; o.x = p.x; o.y = p.y; o.t0 = performance.now() - 4000; } }
-    objs.lv = nw;
-    const st = new Map(f.f.map((x: any) => [x[0], x]));
-    V.boxes = ($factory?.factories || []).map(x => {
-      const s: any = st.get(x.key);
-      const col = !s ? '#6f6b64' : s[2] > 30 ? '#e5484d' : s[2] > 8 ? '#e2b93b' : s[1] > 20 ? '#4cc38a' : '#8a857c';
-      return { box: x.box, color: col, layer: 'factories' };
+    const trucks = f.tk.map(([id, x, y, speed]) => ({ ...(liveTk.get(id) || { name: id, type: 'Truck' }), id, pos: at(x, y), speed }));
+    const nw = liveObjs({ ...($live as any), players, trains, trucks, source: 'frm' });
+    glideFrom(nw, objs.live, performance.now() - (GLIDE_MS - 800));   // frames: only the last 800 ms of the glide
+    objs.live = nw;
+    const st = new Map(f.f.map(x => [x[0], x]));
+    boxes = factoryBoxes($factory?.factories || [], c => {
+      const s = st.get(c.key);
+      return s ? factoryStatusColor(s[2] / 100, s[1] / 100) : C.none;
     });
     rebuild();
   }
 
-  // --- Filter (search, chips) → V.hidden
+  // --- Filter (search, chips) → view.hidden
   function applyFilter() {
-    if (!V) return;
+    if (!view) return;
     const qq = q.trim().toLowerCase();
     const h = new Set<string>();
-    for (const o of V.objs) {
+    for (const o of view.objs) {
       if (o.kind === 'station') {
         const s = o.data;
-        let vis = F[s.kind as 'truck' | 'train'] && (s.mode === 'mixed' || s.mode === 'none' ? F.load || F.unload : F[s.mode as 'load' | 'unload']);
-        if (vis && qq) vis = matches(qq, s.name, ...s.items.map((i: any) => both(i.item)));
+        let vis = stationVisible(s, filters);
+        if (vis && qq) vis = matches(qq, s.name, ...s.items.map((i: { item: string }) => both(i.item)));
         if (!vis) h.add(o.key);
       } else if (qq && o.kind !== 'player') {
-        if (!matches(qq, o.label, o.data?.recipe, o.data?.item, ...(o.data?.out || []).map((x: any) => x.item))) h.add(o.key);
+        if (!matches(qq, o.label, o.data?.recipe, o.data?.item, ...(o.data?.out || []).map((x: { item: string }) => x.item))) h.add(o.key);
       }
     }
-    V.hidden = h; V.invalidate();
+    view.hidden = h; view.invalidate();
   }
-  $effect(() => { void q; void F.truck; void F.train; void F.load; void F.unload; untrack(applyFilter); });
+  $effect(() => { void q; void filters.truck; void filters.train; void filters.load; void filters.unload; untrack(applyFilter); });
   $effect(() => {
     const L = { ...layers };
-    localStorage.setItem('fgmap.layers', JSON.stringify(L));
-    untrack(() => { if (V) { V.layers = L; V.labels = L.labels !== false; V.invalidate(); } });
+    saveJson(KEYS.layers, L);
+    untrack(() => { if (view) { view.layers = L; view.labels = L.labels !== false; view.invalidate(); } });
   });
 
   // --- Selection
   function select(o: MapObj | null, center = true) {
-    sel = o; if (!V) return;
-    V.sel = o; V.links = [];
+    sel = o; if (!view) return;
+    view.sel = o; view.links = [];
     if (o && o.kind === 'station' && o.data.kind === 'truck') {
-      const mine = new Set((o.data.vehicles || []).map((v: any) => v.id));
-      V.links = objs.st.filter(x => x !== o && x.data.kind === 'truck' && (x.data.vehicles || []).some((v: any) => mine.has(v.id))).map(x => [o, x]);
+      const mine = new Set((o.data.vehicles || []).map((v: { id: string }) => v.id));
+      view.links = objs.stations.filter(x => x !== o && x.data.kind === 'truck' && (x.data.vehicles || []).some((v: { id: string }) => mine.has(v.id))).map(x => [o, x]);
     } else if (o && o.kind === 'truck') {
-      V.links = objs.st.filter(x => x.data.kind === 'truck' && (x.data.vehicles || []).some((v: any) => v.id === o.data.id)).map(x => [o, x]);
+      view.links = objs.stations.filter(x => x.data.kind === 'truck' && (x.data.vehicles || []).some((v: { id: string }) => v.id === o.data.id)).map(x => [o, x]);
     }
-    if (o && center) V.focus(o.x, o.y, o.kind === 'machine' ? 3 : 1.2, isMobile ? Math.min(420, V.h * .5) : 0, !isMobile ? 380 : 0);
-    V.redraw(); writeHash();
+    if (o && center) view.focus(o.x, o.y, o.kind === 'machine' ? 3 : 1.2, isMobile ? Math.min(420, view.h * .5) : 0, !isMobile ? DETAIL_W : 0);
+    view.redraw(); writeHash();
   }
-  const pick = (key: string) => { const o = V?.objs.find(x => x.key === key); if (o) select(o); };
+  const pick = (key: string) => { const o = view?.objs.find(x => x.key === key); if (o) select(o); };
 
   // --- Address bar
   let hashT = 0;
   function writeHash() {
-    if (kiosk || !V) return;
+    if (kiosk || !view) return;
     clearTimeout(hashT);
     hashT = window.setTimeout(() => {
-      if (!V) return;
-      const c = V.center();
-      rememberView(c.x, c.y, V.k);
+      if (!view) return;
+      const c = view.center();
+      rememberView(c.x, c.y, view.k);
       // Switched to another page meanwhile? Then don't bend the address back to the map.
       // location.hash instead of $route: the router only learns of the switch via the hashchange event, which would be too late
       if (!/^#\/(map|karte)(\?|$)/.test(location.hash)) return;
-      replaceQuery('map', { x: String(Math.round(c.x)), y: String(Math.round(c.y)), z: V!.k.toFixed(3), ...(sel ? { sel: sel.key } : {}),
+      replaceQuery('map', { x: String(Math.round(c.x)), y: String(Math.round(c.y)), z: view.k.toFixed(3), ...(sel ? { sel: sel.key } : {}),
         ...(flowItem ? { item: flowItem } : {}), ...(pickMode ? { pick: pickMode } : {}) });
     }, 300);
   }
   function fromRoute() {
     const r = $route;
-    if (!V || r.page !== 'map') return;
+    if (!view || r.page !== 'map') return;
     if (r.q.has('x')) {
-      V.k = parseFloat(r.q.get('z') || '1');
-      V.dx = V.w / 2 - V.k * +r.q.get('x')!; V.dy = V.h / 2 - V.k * +r.q.get('y')!; V.invalidate();
+      view.k = parseFloat(r.q.get('z') || '1');
+      view.dx = view.w / 2 - view.k * +r.q.get('x')!; view.dy = view.h / 2 - view.k * +r.q.get('y')!; view.invalidate();
     }
     const s = r.q.get('sel');
-    if (s) { const o = V.objs.find(x => x.key === s); if (o) select(o, !r.q.has('x')); }
+    if (s) { const o = view.objs.find(x => x.key === s); if (o) select(o, !r.q.has('x')); }
     pickMode = r.q.get('pick');
     const w = r.q.get('item');
     if (w !== null && w !== flowItem) { flowItem = w; showFlow = true; if (!r.q.has('x')) setTimeout(flowFit, 300); }
@@ -275,308 +267,152 @@
   $effect(() => { void $route; untrack(() => { if (routeReady) fromRoute(); }); });
 
   function fitFactory() {
-    if (!V) return;
-    const xs = objs.st.map(o => o.x).concat(objs.fac.map(o => o.x)), ys = objs.st.map(o => o.y).concat(objs.fac.map(o => o.y));
+    if (!view) return;
+    const xs = objs.stations.map(o => o.x).concat(objs.factory.map(o => o.x)), ys = objs.stations.map(o => o.y).concat(objs.factory.map(o => o.y));
     if (!xs.length) return;
     const lo = (a: number[]) => a.slice().sort((p, q) => p - q)[Math.floor(a.length * .01)];
     const hi = (a: number[]) => a.slice().sort((p, q) => p - q)[Math.floor(a.length * .99)];
-    V.fit(lo(xs) - 150, lo(ys) - 150, hi(xs) + 150, hi(ys) + 150);
+    view.fit(lo(xs) - 150, lo(ys) - 150, hi(xs) + 150, hi(ys) + 150);
   }
-  function fitMap() { if (V && $stations) { const m = $stations.map; V.fit(m.west / 100, m.north / 100, m.east / 100, m.south / 100, .98); } }
+  function fitMap() { if (view && $stations) { const m = $stations.map; view.fit(m.west / 100, m.north / 100, m.east / 100, m.south / 100, .98); } }
+  function setMapImage(s: Stations) {
+    const m = s.map;
+    view!.setImage('/map.jpg', { x: m.west / 100, y: m.north / 100, w: (m.east - m.west) / 100, h: (m.south - m.north) / 100 });
+  }
 
   function scalebar() {
-    if (!V) return;
-    const want = 110 / V.k, steps = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
+    if (!view) return;
+    const want = 110 / view.k, steps = [5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
     const d = steps.find(s => s >= want) || 5000;
-    scaleW = d * V.k; scaleTxt = d >= 1000 ? d / 1000 + ' km' : d + ' m';
+    scaleW = d * view.k; scaleTxt = d >= 1000 ? d / 1000 + ' km' : d + ' m';
   }
 
-  // --- Gestures
-  onMount(() => {
-    V = new MapView(cv);
-    (window as any).__fgmap = V;          // for smoke tests (read camera/objects), otherwise unused
-    V.layers = { ...layers };
-    V.labels = layers.labels !== false;
-    V.onchange = () => { scalebar(); writeHash(); };
-    let heatKey = '', heatCv: HTMLCanvasElement | null = null, heatBox = { x: 0, y: 0, k: 1 };
-    V.overlays.push({ key: 'heat', layer: 'heat', draw: (c, v) => {
-      const ms = ($factory?.machines || []).filter(m => m.state === 'stopped' && m.block !== 'full');
-      if (!ms.length) return;
-      // render the heat map in world coordinates once per data snapshot (4 m/px), then just draw it scaled
-      const key = ($factory?.at || 0) + ':' + ms.length;
-      if (key !== heatKey) {
-        heatKey = key;
-        const xs = ms.map(m => m.pos[0]), ys = ms.map(m => m.pos[1]), pad = 120, res = 4;
-        const x0 = Math.min(...xs) - pad, y0 = Math.min(...ys) - pad;
-        const w = Math.ceil((Math.max(...xs) + pad - x0) / res), h = Math.ceil((Math.max(...ys) + pad - y0) / res);
-        heatCv = document.createElement('canvas'); heatCv.width = w; heatCv.height = h;
-        const hc = heatCv.getContext('2d')!;
-        for (const m of ms) {
-          const px = (m.pos[0] - x0) / res, py = (m.pos[1] - y0) / res, r = 40 / res;
-          const g = hc.createRadialGradient(px, py, 0, px, py, r);
-          g.addColorStop(0, 'rgba(0,0,0,.22)'); g.addColorStop(1, 'rgba(0,0,0,0)');
-          hc.fillStyle = g; hc.fillRect(px - r, py - r, 2 * r, 2 * r);
-        }
-        // density (alpha) → colour: yellow for low, red for high
-        const img = hc.getImageData(0, 0, w, h), d = img.data;
-        for (let i = 0; i < d.length; i += 4) {
-          const a = d[i + 3] / 255; if (!a) continue;
-          const t = Math.min(1, a * 1.6);
-          d[i] = 229; d[i + 1] = Math.round(185 - 113 * t); d[i + 2] = Math.round(59 + 18 * t); d[i + 3] = Math.round(Math.min(.75, a * 1.4) * 255);
-        }
-        hc.putImageData(img, 0, 0);
-        heatBox = { x: x0, y: y0, k: res };
-      }
-      if (heatCv) c.drawImage(heatCv, v.sx(heatBox.x), v.sy(heatBox.y), heatCv.width * heatBox.k * v.k, heatCv.height * heatBox.k * v.k);
-    } });
-    V.overlays.push({ key: 'measure', layer: 'measure', draw: (c, v) => {
-      const m = measure; if (!m || !m.length) return;
-      c.strokeStyle = '#f59a23'; c.lineWidth = 2; c.setLineDash([8, 5]); c.beginPath();
-      m.forEach((q, i) => (i ? c.lineTo : c.moveTo).call(c, v.sx(q[0]), v.sy(q[1])));
-      c.stroke(); c.setLineDash([]);
-      c.font = '600 12px "Barlow Condensed", sans-serif'; c.textAlign = 'center';
-      for (let i = 0; i < m.length; i++) {
-        const x = v.sx(m[i][0]), y = v.sy(m[i][1]);
-        c.fillStyle = '#f59a23'; c.beginPath(); c.arc(x, y, 4, 0, Math.PI * 2); c.fill();
-        if (i) {                                         // label the segment length at its midpoint
-          const d = Math.hypot(m[i][0] - m[i - 1][0], m[i][1] - m[i - 1][1]);
-          const mx = (x + v.sx(m[i - 1][0])) / 2, my = (y + v.sy(m[i - 1][1])) / 2;
-          c.strokeStyle = 'rgba(12,13,14,.9)'; c.lineWidth = 3.5; const t = d >= 1000 ? (d / 1000).toFixed(2) + ' km' : Math.round(d) + ' m';
-          c.strokeText(t, mx, my - 6); c.fillStyle = '#f5f2ea'; c.fillText(t, mx, my - 6);
-        }
-      }
-    } });
-    V.overlays.push({ key: 'trails', layer: 'trails', draw: (c, v) => {
-      const T = $trails; c.lineWidth = 2; c.lineJoin = 'round';
-      for (const n in T) {
-        const pts = T[n]; if (pts.length < 2) continue;
-        const now = Date.now() / 1000;
-        for (let i = 1; i < pts.length; i++) {       // older segments fainter
-          c.globalAlpha = Math.max(.12, 1 - (now - pts[i][0]) / 7200) * .8;
-          c.strokeStyle = '#f59a23'; c.beginPath();
-          c.moveTo(v.sx(pts[i - 1][1]), v.sy(pts[i - 1][2])); c.lineTo(v.sx(pts[i][1]), v.sy(pts[i][2])); c.stroke();
-        }
-      }
-      c.globalAlpha = 1;
-    } });
-    V.overlays.push({ key: 'pins', layer: 'pins', draw: (c, v) => {
-      for (const p of $pins) {
-        if (p.shape === 'point') continue;
-        c.strokeStyle = p.color; c.fillStyle = p.color; c.lineWidth = 2.5; c.beginPath();
-        p.geom.forEach((q, i) => (i ? c.lineTo : c.moveTo).call(c, v.sx(q[0]), v.sy(q[1])));
-        if (p.shape === 'area') { c.closePath(); c.globalAlpha = .15; c.fill(); c.globalAlpha = 1; c.setLineDash([6, 4]); }
-        c.stroke(); c.setLineDash([]);
-      }
-      if (draw && draw.pts.length) {
-        c.strokeStyle = '#f5f2ea'; c.lineWidth = 2; c.setLineDash([4, 4]); c.beginPath();
-        draw.pts.forEach((q, i) => (i ? c.lineTo : c.moveTo).call(c, v.sx(q[0]), v.sy(q[1])));
-        if (draw.shape === 'area' && draw.pts.length > 2) c.closePath();
-        c.stroke(); c.setLineDash([]);
-        for (const q of draw.pts) { c.fillStyle = '#f5f2ea'; c.fillRect(v.sx(q[0]) - 3, v.sy(q[1]) - 3, 6, 6); }
-      }
-    } });
-    if ($stations) {
-      const m = $stations.map;
-      V.setImage('/map.jpg', { x: m.west / 100, y: m.north / 100, w: (m.east - m.west) / 100, h: (m.south - m.north) / 100 });
-    }
-    const ptrs = new Map<number, { x: number; y: number }>();
-    let g: any = null, lastTap: any = null;
-    const loc = (e: PointerEvent | MouseEvent) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
-    cv.addEventListener('pointerdown', e => {
-      const p = loc(e); ptrs.set(e.pointerId, p);
-      if (ptrs.size === 1) g = { t: 'pan', x0: p.x, y0: p.y, dx: V!.dx, dy: V!.dy, moved: 0, type: e.pointerType };
-      else if (ptrs.size === 2) {
-        const [a, b] = [...ptrs.values()];
-        g = { t: 'pinch', d0: Math.hypot(a.x - b.x, a.y - b.y), k0: V!.k, wx: V!.wx((a.x + b.x) / 2), wy: V!.wy((a.y + b.y) / 2) };
-      }
-      cv.setPointerCapture(e.pointerId);
-    });
-    cv.addEventListener('pointermove', e => {
-      const p = loc(e);
-      if (!ptrs.has(e.pointerId)) {                        // hover (mouse)
-        if (e.pointerType === 'mouse' && !draw) {
-          const o = V!.hit(p.x, p.y);
-          if (o !== V!.hover) { V!.hover = o; V!.redraw(); }
-          tip = o ? { x: p.x, y: p.y, o } : null;
-          cv.style.cursor = pickMode || measure ? 'crosshair' : o ? 'pointer' : draw ? 'crosshair' : 'grab';
-        }
-        return;
-      }
-      ptrs.set(e.pointerId, p);
-      if (g?.t === 'pan') {
-        g.moved = Math.max(g.moved, Math.hypot(p.x - g.x0, p.y - g.y0));
-        if (g.moved < (g.type === 'touch' ? 9 : 4)) return;
-        if (follow) follow = '';
-        V!.dx = g.dx + p.x - g.x0; V!.dy = g.dy + p.y - g.y0; V!.redraw(); V!.onchange(); tip = null;
-      } else if (g?.t === 'pinch' && ptrs.size === 2) {
-        const [a, b] = [...ptrs.values()];
-        const k = Math.max(.02, Math.min(30, g.k0 * Math.hypot(a.x - b.x, a.y - b.y) / g.d0));
-        const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
-        V!.k = k; V!.dx = m.x - g.wx * k; V!.dy = m.y - g.wy * k; V!.redraw(); V!.onchange();
-      }
-    });
-    const up = (e: PointerEvent) => {
-      if (!ptrs.has(e.pointerId)) return;
-      ptrs.delete(e.pointerId);
-      if (g?.t === 'pinch') { g = ptrs.size === 1 ? { t: 'pan', ...(() => { const p = [...ptrs.values()][0]; return { x0: p.x, y0: p.y }; })(), dx: V!.dx, dy: V!.dy, moved: 99 } : null; return; }
-      if (g?.t === 'pan' && g.moved < (g.type === 'touch' ? 9 : 4) && e.type === 'pointerup') {
-        const p = loc(e);
-        if (measure) {                                       // measuring: append point (snap to nearest object)
-          const o = V!.hit(p.x, p.y, 12);
-          measure = [...measure, o ? [o.x, o.y] : [V!.wx(p.x), V!.wy(p.y)]];
-          V!.redraw();
-        } else if (pickMode) {                               // pick the build site for the planner
-          const site = { x: Math.round(V!.wx(p.x)), y: Math.round(V!.wy(p.y)) };
-          localStorage.setItem('fgmap.site', JSON.stringify(site));
-          pickMode = null; location.hash = '#/planner';
-        } else if (draw) {                                   // drawing mode: place points
-          draw.pts = [...draw.pts, [Math.round(V!.wx(p.x)), Math.round(V!.wy(p.y))]];
-          if (draw.shape === 'point') finishDraw();
-          V!.redraw();
-        } else {
-          const now = performance.now();
-          if (g.type === 'touch' && lastTap && now - lastTap.t < 320 && Math.hypot(p.x - lastTap.x, p.y - lastTap.y) < 30) {
-            V!.zoomAt(p.x, p.y, 2); lastTap = null;
-          } else {
-            lastTap = { t: now, ...p };
-            select(V!.hit(p.x, p.y, g.type === 'touch' ? 18 : 10), false);
-          }
-        }
-      }
-      g = null;
-    };
-    cv.addEventListener('pointerup', up); cv.addEventListener('pointercancel', up);
-    cv.addEventListener('pointerleave', () => { tip = null; if (V!.hover) { V!.hover = null; V!.redraw(); } });
-    cv.addEventListener('wheel', e => { e.preventDefault(); const p = loc(e); V!.zoomAt(p.x, p.y, Math.exp(-e.deltaY * .0016)); }, { passive: false });
-    cv.addEventListener('dblclick', e => { if (draw && draw.shape !== 'point') { finishDraw(); } });
+  // --- Pointer input: what hover and tap mean depends on the mode (measure, pick, draw, select)
+  function onTap(p: Pt) {
+    const v = view!;
+    if (measure) {                                       // measuring: append point (snap to nearest object)
+      const o = v.hit(p.x, p.y, 12);
+      setMeasure([...measure, o ? [o.x, o.y] : [v.wx(p.x), v.wy(p.y)]]);
+    } else if (pickMode) {                               // pick the build site for the planner
+      saveJson(KEYS.site, { x: Math.round(v.wx(p.x)), y: Math.round(v.wy(p.y)) });
+      pickMode = null; location.hash = '#/planner';
+    } else if (draw) {                                   // drawing mode: place points
+      draw.pts = [...draw.pts, [Math.round(v.wx(p.x)), Math.round(v.wy(p.y))]];
+      if (draw.shape === 'point') finishDraw();
+      v.redraw();
+    } else return false;
+    return true;
+  }
+  function onHover(p: Pt) {
+    const v = view!;
+    if (draw) return;
+    const o = v.hit(p.x, p.y);
+    if (o !== v.hover) { v.hover = o; v.redraw(); }
+    tip = o ? { x: p.x, y: p.y, o } : null;
+    cv.style.cursor = pickMode || measure ? 'crosshair' : o ? 'pointer' : 'grab';
+  }
 
-    // load the detail layer once (binary package, ~180 KB gzip); only needed from zoom 0.8
-    fetch('/api/detail').then(r => r.ok ? r.arrayBuffer() : null).then(buf => {
-      if (!buf || !V) return;
-      const h = new Int32Array(buf, 0, 2), nt = h[0], nw = h[1];
-      const tiles = new Int16Array(buf, 8, 3 * nt), tmeta = new Uint8Array(buf, 8 + 6 * nt, nt);
-      const wOff = 8 + 6 * nt + nt + ((nt % 2) ? 1 : 0);
-      V.detail = { tiles, tmeta, walls: new Int16Array(buf, wOff, 5 * nw) }; V.invalidate();
-    }).catch(() => {});
+  let initT = 0, detachGestures = () => {};
+  onMount(() => {
+    const v = view = new MapView(cv);
+    (window as any).__fgmap = v;          // for smoke tests (read camera/objects), otherwise unused
+    v.layers = { ...layers };
+    v.labels = layers.labels !== false;
+    v.onchange = () => { scalebar(); writeHash(); };
+    v.overlays.push(heatOverlay(() => $factory), measureOverlay(() => measure), trailsOverlay(() => $trails), pinsOverlay(() => $pins, () => draw));
+    if ($stations) setMapImage($stations);
+    detachGestures = attachGestures(cv, v, {
+      hover: onHover,
+      leave: () => { tip = null; if (v.hover) { v.hover = null; v.redraw(); } },
+      pan: () => { if (follow) follow = ''; tip = null; },
+      tap: onTap,
+      select: (p, touch) => select(v.hit(p.x, p.y, touch ? 18 : 10), false),
+      dblclick: () => { if (draw && draw.shape !== 'point') finishDraw(); },
+    });
+
+    // the detail layer (foundations/walls) is only drawn from zoom 0.8 — load it once in the background
+    loadDetail().then(d => { if (d && view) { view.detail = d; view.invalidate(); } }).catch(() => {});
     const init = () => {
-      if (!$stations) return setTimeout(init, 200);
+      if (!view) return;
+      if (!$stations) { initT = window.setTimeout(init, 200); return; }
       ingestAll();
-      const m = $stations.map;
-      if (!V!.img) V!.setImage('/map.jpg', { x: m.west / 100, y: m.north / 100, w: (m.east - m.west) / 100, h: (m.south - m.north) / 100 });
+      if (!view.img) setMapImage($stations);
       if (!kiosk && ($route.q.has('x') || $route.q.has('item') || $route.q.has('sel') || $route.q.has('pick'))) { if (!$route.q.has('x')) fitFactory(); fromRoute(); }
       else if ($prefs.lastView && !kiosk) {           // own start view: continue where you left off
-        const lv = $prefs.lastView; V!.k = lv.z; V!.dx = V!.w / 2 - lv.z * lv.x; V!.dy = V!.h / 2 - lv.z * lv.y; V!.invalidate();
+        const lv = $prefs.lastView; view.k = lv.z; view.dx = view.w / 2 - lv.z * lv.x; view.dy = view.h / 2 - lv.z * lv.y; view.invalidate();
       } else fitFactory();
       routeReady = true; scalebar();
     };
     init();
     addEventListener('keydown', key);
   });
-  onDestroy(() => { clearTimeout(hashT); V?.destroy(); removeEventListener('keydown', key); });
+  onDestroy(() => {
+    clearTimeout(hashT); clearTimeout(initT); detachGestures();
+    view?.destroy(); view = null;
+    removeEventListener('keydown', key);
+  });
 
   function key(e: KeyboardEvent) {
-    if (kiosk || !V) return;
+    if (kiosk || !view) return;
     const inField = (e.target as HTMLElement)?.matches?.('input, textarea');
     if (inField) { if (e.key === 'Escape') { q = ''; (e.target as HTMLElement).blur(); } return; }
-    const r = { w: V.w / 2, h: V.h / 2 };
-    if (e.key === '/') { e.preventDefault(); (document.querySelector('#q') as HTMLInputElement)?.focus(); }
+    const r = { w: view.w / 2, h: view.h / 2 };
+    if (e.key === '/') { e.preventDefault(); stationList?.focus(); }
     else if (e.key === 'Escape') { if (draw) draw = null; else if (q) q = ''; else select(null); }
-    else if (e.key === '+' || e.key === '=') V.zoomAt(r.w, r.h, 1.4);
-    else if (e.key === '-') V.zoomAt(r.w, r.h, 1 / 1.4);
+    else if (e.key === '+' || e.key === '=') view.zoomAt(r.w, r.h, 1.4);
+    else if (e.key === '-') view.zoomAt(r.w, r.h, 1 / 1.4);
     else if (e.key === 'f') fitFactory();
     else if (e.key === 'g') fitMap();
     else if (e.key === 'l') layers.labels = layers.labels === false;
     else if (e.key === 'm') layers.mapimg = !layers.mapimg;
     else if (e.key.startsWith('Arrow')) {
-      const s = 80; V.pan(e.key === 'ArrowLeft' ? s : e.key === 'ArrowRight' ? -s : 0, e.key === 'ArrowUp' ? s : e.key === 'ArrowDown' ? -s : 0);
+      const s = 80; view.pan(e.key === 'ArrowLeft' ? s : e.key === 'ArrowRight' ? -s : 0, e.key === 'ArrowUp' ? s : e.key === 'ArrowDown' ? -s : 0);
     }
   }
 
   // --- Drawing / pins
-  function startDraw(shape: 'point' | 'line' | 'area') { draw = { shape, pts: [] }; select(null); }
+  function startDraw(shape: Draft['shape']) { draw = { shape, pts: [] }; select(null); }
   function finishDraw() {
     if (!draw) return;
-    const need = draw.shape === 'point' ? 1 : draw.shape === 'line' ? 2 : 3;
-    if (draw.pts.length >= need) editPin = { author: '', cat: 'planned', color: '#f59a23', text: '', shape: draw.shape, geom: draw.pts };
-    draw = null; V?.redraw();
+    if (draw.pts.length >= minPoints(draw.shape)) editPin = { author: '', cat: 'planned', color: C.accent, text: '', shape: draw.shape, geom: draw.pts };
+    draw = null; view?.redraw();
   }
   function editObj(o: MapObj) {
     if (o.kind === 'pin') editPin = { ...o.data };
     else if (o.kind === 'factory') editPin = { factory: o.data };
   }
-
-  function tipText(o: MapObj) {
-    const d = o.data;
-    if (o.kind === 'station') return (d.kind === 'train' ? $t('Train station') : $t('Truck station')) + ' · ' + $t(MODE_LABEL[d.mode]) + (d.items[0] ? ' · ' + d.items.map((i: any) => $tn(i.item)).join(', ') : '');
-    if (o.kind === 'machine') return $tn(d.name) + ' · ' + $t(d.state) + ' ' + d.pct + ' %' + (d.why ? ' · ' + $lx(d.why) : '');
-    if (o.kind === 'node') return (d.used ? $t('occupied') : $t('free')) + (d.rate ? ' · ' + d.rate + '/min' : '');
-    if (o.kind === 'player') return d.online === null ? $t('as of the save') : d.online ? $t('online') : $t('offline');
-    if (o.kind === 'truck' || o.kind === 'train') return (d.cargo ? $tn(d.cargo.item) + ' · ' : '') + (d.speed != null ? Math.round(d.speed) + ' km/h' : $t('Position from the save'));
-    if (o.kind === 'factory') return $t('{n} machines · {s} stopped', { n: d.n, s: d.states['stopped'] || 0 });
-    if (o.kind === 'pin') return d.author;
-    if (o.kind === 'generator') return d.producing ? $t('producing {n} MW', { n: d.cap }) : $t('stopped');
-    if (o.kind === 'collectible') return $t('not collected yet · height {z} m', { z: d.pos[2] });
-    return '';
-  }
+  const followName = $derived(follow.split(':').slice(1).join(':'));
 </script>
 
 <div class="wrap" class:kiosk>
   {#if !kiosk}
-  <StationList bind:q bind:F bind:open={showList} selKey={sel?.key || ''} onpick={pick} onfit={(a, b, c, d) => V?.fit(a, b, c, d)} />
+  <StationList bind:this={stationList} bind:q bind:filters bind:open={showList} selKey={sel?.key || ''} onpick={pick} onfit={(a, b, c, d) => view?.fit(a, b, c, d)} />
   {#if showList}<button class="backdrop" aria-label={$t('Close list')} onclick={() => (showList = false)}></button>{/if}
   {/if}
 
   <section class="map">
     <canvas bind:this={cv} aria-label={$t('Factory map')}></canvas>
     {#if tip && !isMobile}
-      <div class="tip" style="left:{tip.x + 14}px;top:{tip.y + 14}px"><b>{tip.o.kind === 'machine' || tip.o.kind === 'node' || tip.o.kind === 'generator' ? $tn(tip.o.kind === 'machine' ? (tip.o.data.recipe || tip.o.data.name) : tip.o.kind === 'node' ? tip.o.data.item : tip.o.data.name) : tip.o.label}</b><span>{tipText(tip.o)}</span></div>
+      <div class="tip" style="left:{tip.x + 14}px;top:{tip.y + 14}px"><b>{tipTitle(tip.o, $tn)}</b><span>{tipText(tip.o, $tn)}</span></div>
     {/if}
 
     {#if !kiosk}
     <div class="ctl">
       <button class="cb m-only" onclick={() => (showList = !showList)} aria-label={$t('Station list')}>☰</button>
-      <div class="grp"><button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1.5)} aria-label={$t('Zoom in')}>+</button>
-        <button class="cb" onclick={() => V?.zoomAt(V.w / 2, V.h / 2, 1 / 1.5)} aria-label={$t('Zoom out')}>−</button></div>
+      <div class="grp"><button class="cb" onclick={() => view?.zoomAt(view.w / 2, view.h / 2, 1.5)} aria-label={$t('Zoom in')}>+</button>
+        <button class="cb" onclick={() => view?.zoomAt(view.w / 2, view.h / 2, 1 / 1.5)} aria-label={$t('Zoom out')}>−</button></div>
       <button class="cb wide" onclick={fitFactory} title={$t('Zoom to the factory area (f)')}><span class="i">⌂</span><span class="t">{$t('Factory')}</span></button>
       <button class="cb wide" onclick={fitMap} title={$t('Whole map (g)')}><span class="i">⤢</span><span class="t">{$t('Whole map')}</span></button>
       <button class="cb wide" class:on={showLayers} onclick={() => (showLayers = !showLayers)}><span class="i">◫</span><span class="t">{$t('Layers')}</span></button>
       <button class="cb wide" class:on={!!draw} onclick={() => (draw ? (draw = null) : startDraw('point'))} title={$t('Put a note on the map')}><span class="i">✎</span><span class="t">{$t('Note')}</span></button>
       <button class="cb wide" class:on={showZ || !!zRange} onclick={() => { showZ = !showZ; if (!showZ) zRange = null; }} title={$t('Filter by height/floor')}><span class="i">☰</span><span class="t">{$t('Height')}</span></button>
-      <button class="cb wide" class:on={!!measure} onclick={() => { measure = measure ? null : []; select(null); V?.redraw(); }} title={$t('Measure distance and area')}><span class="i">⟷</span><span class="t">{$t('Measure')}</span></button>
+      <button class="cb wide" class:on={!!measure} onclick={() => { setMeasure(measure ? null : []); select(null); }} title={$t('Measure distance and area')}><span class="i">⟷</span><span class="t">{$t('Measure')}</span></button>
       <button class="cb wide" class:on={showTT} onclick={() => (showTT = !showTT)} title={$t('Play back the last few hours')}><span class="i">◷</span><span class="t">{$t('Time travel')}</span></button>
       <button class="cb wide" class:on={showFlow || !!flowItem} onclick={() => { showFlow = !showFlow; if (!showFlow) flowItem = ''; }} title={$t('Trace an item through the factory')}><span class="i">⇶</span><span class="t">{$t('Item flow')}</span></button>
-      {#if showLayers}
-        <div class="layers panel">
-          {#each LAYERS as [k, l]}
-            <label><input type="checkbox" bind:checked={layers[k]} /> {l}{#if collectCount[k]}<span class="cnt">{collectCount[k]}</span>{/if}</label>
-          {/each}
-          <label><input type="checkbox" checked={layers.labels !== false} onchange={e => (layers.labels = (e.target as HTMLInputElement).checked)} /> {$t('Labels')}</label>
-          <button class="lg" onclick={() => (showLegend = !showLegend)}>{showLegend ? $t('Hide legend') : $t('Show legend')}</button>
-        </div>
-      {/if}
-      {#if draw}
-        <div class="drawbar panel">
-          <div class="seg">
-            {#each [['point', $t('Point')], ['line', $t('Line')], ['area', $t('Area')]] as [s, l]}
-              <button class:on={draw.shape === s} onclick={() => (draw = { shape: s as any, pts: [] })}>{l}</button>
-            {/each}
-          </div>
-          <p>{draw.shape === 'point' ? $t('Tap where the note should go.') : $t('Place points, then “Done”.')}</p>
-          {#if draw.shape !== 'point'}<button class="btn primary" onclick={finishDraw} disabled={draw.pts.length < (draw.shape === 'line' ? 2 : 3)}>{$t('Done')}</button>{/if}
-          <button class="btn" onclick={() => (draw = null)}>{$t('Cancel')}</button>
-        </div>
-      {/if}
+      {#if showLayers}<LayerMenu bind:layers bind:showLegend counts={collectCount} />{/if}
+      {#if draw}<DrawBar bind:draw onfinish={finishDraw} />{/if}
     </div>
-    {#if showLegend}
-      <div class="legend panel">
-        <div><span class="dot" style="background:{C.load}"></span> {$t('Load')} <span class="dot" style="background:{C.unload}"></span> {$t('Unload')} <span class="dot" style="background:{C.mixed}"></span> {$t('mixed')}</div>
-        <div><span class="sq"></span> {$t('Train station')} · <span class="dot" style="background:#c3bfb7"></span> {$t('Truck station')} · {$t('bar = fill level')}</div>
-        <div><span class="dot" style="background:#f59a23;box-shadow:0 0 0 2px #f5f2ea"></span> {$t('Player')} · <span class="sq" style="background:{C.train}"></span> {$t('Train')} · <span class="dia"></span> {$t('Vehicle')}</div>
-        <div><span class="sq sm" style="background:{C.ok}"></span> {$t('running')} <span class="sq sm" style="background:{C.warn}"></span> {$t('partial')} <span class="sq sm" style="background:{C.bad}"></span> {$t('Missing input')} <span class="sq sm" style="background:#8a857c"></span> {$t('Output full')}</div>
-        <div>{$t('Factory outline: green running · yellow some shortage · red severe shortage')}</div>
-        <div class="muted">{$t('Map image:')} satisfactory.wiki.gg · CC BY-NC-SA</div>
-      </div>
-    {/if}
+    {#if showLegend}<Legend />{/if}
     <div class="scale"><span style="width:{scaleW}px"></span>{scaleTxt}</div>
     {/if}
 
@@ -590,39 +426,16 @@
     {/if}
     {#if showTT && !kiosk}<TimeTravel onframe={applyFrame} onclose={() => (showTT = false)} />{/if}
     {#if showZ && !kiosk}<HeightPanel bind:zRange onclose={() => (showZ = false)} />{/if}
-    {#if measure && !kiosk}
-      <div class="flowbar panel meas">
-        <div class="zh"><b>{$t('Measure')}</b><button class="x" onclick={() => { measure = null; V?.redraw(); }} aria-label={$t('Stop measuring')}>✕</button></div>
-        {#if measureInfo}
-          <div class="fs"><span>{$t('Distance')} <b class="num">{measureInfo.len >= 1000 ? (measureInfo.len / 1000).toFixed(2) + ' km' : Math.round(measureInfo.len) + ' m'}</b></span>
-            {#if measure.length > 2}<span>{$t('Straight line start–end')} <b class="num">{Math.round(measureInfo.direct)} m</b></span>
-              <span>{$t('Area')} <b class="num">{measureInfo.area >= 1e6 ? (measureInfo.area / 1e6).toFixed(2) + ' km²' : fmtNum(Math.round(measureInfo.area)) + ' m²'}</b> ≈ {$t('{n} foundations 8×8', { n: fmtNum(Math.floor(measureInfo.area / 64)) })}</span>{/if}
-            <span>≈ {$t('{r} rail pieces · {b} belts (max. 56 m)', { r: fmtNum(Math.ceil(measureInfo.len / 12)), b: fmtNum(Math.ceil(measureInfo.len / 56)) })}</span></div>
-          <button class="lk" onclick={() => { measure = measure!.slice(0, -1); V?.redraw(); }}>{$t('remove last point')}</button>
-        {:else}<p class="muted">{$t('Tap points on the map. Points snap to stations and machines.')}</p>{/if}
-      </div>
-    {/if}
+    {#if measure && !kiosk}<MeasurePanel pts={measure} onchange={setMeasure} />{/if}
     {#if pickMode && !kiosk}
-      <div class="flowbar panel pick">{$t('Tap the spot where you want to build.')}
-        <a class="lk" href="#/planner">{$t('Cancel')}</a></div>
+      <MapBar variant="pick">{$t('Tap the spot where you want to build.')}
+        <a class="lk" href="#/planner">{$t('Cancel')}</a></MapBar>
     {/if}
-    {#if (showFlow || flowItem) && !kiosk}
-      <div class="flowbar panel">
-        <div class="fr"><ItemPicker bind:value={flowItem} items={flowItems} placeholder={$t('Trace an item, e.g. Steel Beam')} onpick={() => setTimeout(flowFit, 30)} />
-          <button class="x" onclick={() => { flowItem = ''; showFlow = false; }} aria-label={$t('Close item flow')}>✕</button></div>
-        {#if flowInfo}
-          <div class="fs"><span><b class="num">{fmtNum(flowInfo.prod)}</b>{$t('/min produced · {n} machines', { n: flowInfo.np })}</span>
-            <span><b class="num">{fmtNum(flowInfo.cons)}</b>{$t('/min consumed · {n}', { n: flowInfo.nc })}</span>
-            <span>{$t('{s} stations · {p} belts/pipes', { s: flowInfo.ns, p: flowInfo.paths.length })}</span></div>
-          {#if !flowInfo.paths.length}<p class="muted">{$t('In the last save this item was not on any belt.')}</p>{/if}
-          <button class="lk" onclick={flowFit}>{$t('Zoom to all locations')}</button>
-        {/if}
-      </div>
-    {/if}
+    {#if (showFlow || flowItem) && !kiosk}<FlowPanel bind:item={flowItem} items={flowItems} info={flowInfo} onfit={flowFit} onclose={closeFlow} />{/if}
     {#if follow && !kiosk}
       <div class="following" class:paused={followState !== 'active'}>
-        {#if followState === 'active'}{$t('Follow {name}', { name: follow.split(':').slice(1).join(':') })}
-        {:else}{$t('{name} is offline — following resumes automatically at their next login', { name: follow.split(':').slice(1).join(':') })}{/if}
+        {#if followState === 'active'}{$t('Follow {name}', { name: followName })}
+        {:else}{$t('{name} is offline — following resumes automatically at their next login', { name: followName })}{/if}
         <button onclick={() => (follow = '')}>{$t('stop')}</button></div>
     {/if}
   </section>
@@ -649,39 +462,11 @@
   .cb.on { border-color: var(--ficsit); color: var(--ficsit); }
   .grp .cb + .cb { border-top: none; }
   .m-only { display: none; }
-  .layers { position: absolute; left: calc(100% + 8px); top: 90px; padding: 10px 14px; display: flex; flex-direction: column; gap: 3px; width: 230px;
-            box-shadow: 0 8px 24px #0007; }
-  .layers label { display: flex; gap: 8px; align-items: center; font-size: 13.5px; cursor: pointer; }
-  .layers input { accent-color: var(--ficsit); }
-  .layers .cnt { margin-left: auto; color: var(--dim); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .lg { margin-top: 6px; background: none; border: none; color: var(--ficsit); text-align: left; padding: 0; font-size: 13px; }
-  .drawbar { position: absolute; left: calc(100% + 8px); top: 130px; padding: 12px; width: 240px; box-shadow: 0 8px 24px #0007; }
-  .drawbar p { font-size: 13px; color: var(--text2); margin: 8px 0; }
-  .drawbar .btn { margin-right: 6px; }
-  .seg { display: flex; }
-  .seg button { flex: 1; background: var(--steel); border: 1px solid var(--seam); padding: 5px; font-size: 13px; color: var(--text2); }
-  .seg button.on { border-color: var(--ficsit); color: var(--ficsit); }
-  .legend { position: absolute; left: 12px; bottom: 44px; padding: 10px 14px; font-size: 12.5px; display: flex; flex-direction: column; gap: 4px; z-index: 9; }
-  .legend .dot { margin: 0 3px 0 6px; }
-  .sq { display: inline-block; width: 10px; height: 10px; background: #c3bfb7; border-radius: 2px; vertical-align: -1px; }
-  .sq.sm { width: 8px; height: 8px; margin-left: 6px; }
-  .dia { display: inline-block; width: 8px; height: 8px; background: var(--ficsit); transform: rotate(45deg); margin: 0 3px; }
   .scale { position: absolute; left: 12px; bottom: 12px; font-size: 12px; color: var(--text2); display: flex; align-items: center; gap: 8px;
            text-shadow: 0 1px 2px #000; pointer-events: none; }
   .scale span { height: 6px; border: 2px solid var(--text2); border-top: none; }
   .detail { position: absolute; top: 12px; right: 12px; bottom: 12px; width: 360px; overflow: auto; z-index: 15; box-shadow: 0 10px 30px #0008; height: fit-content; max-height: calc(100% - 24px); }
   .close { position: absolute; top: 10px; right: 14px; background: none; border: none; color: var(--dim); font-size: 16px; z-index: 1; }
-  .flowbar { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); width: min(460px, calc(100% - 120px)); padding: 10px 12px; z-index: 14;
-             box-shadow: 0 8px 24px #0007; display: flex; flex-direction: column; gap: 6px; }
-  .flowbar .fr { display: flex; gap: 6px; align-items: center; }
-  .flowbar .x { background: none; border: none; color: var(--dim); font-size: 15px; }
-  .flowbar .fs { display: flex; flex-wrap: wrap; gap: 2px 14px; font-size: 12.5px; color: var(--text2); }
-  .flowbar p { margin: 0; font-size: 12.5px; }
-  .flowbar .lk { background: none; border: none; color: var(--ficsit); padding: 0; text-align: left; font-size: 12.5px; }
-  .flowbar.meas { top: auto; bottom: 40px; }
-  .meas .x { background: none; border: none; color: var(--dim); margin-left: auto; }
-  .meas .zh { display: flex; align-items: center; gap: 10px; }
-  .flowbar.pick { flex-direction: row; justify-content: space-between; align-items: center; border-left: 3px solid var(--ficsit); }
   .following { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); background: var(--ficsit); color: #1b1c1e; padding: 5px 12px;
                font-family: var(--cond); font-weight: 600; font-size: 15px; z-index: 12; }
   .following.paused { background: var(--plate2); color: var(--text2); border: 1px solid var(--seam); font-family: var(--body); font-weight: 400; font-size: 13px; }
@@ -694,11 +479,6 @@
     .cb.wide .t { display: none; }
     .cb.wide { justify-content: center; padding: 0; width: 40px; }
     .cb { height: 40px; min-width: 40px; }
-    .layers, .drawbar { left: 48px; top: 0; }
-    .flowbar { left: 56px; right: 8px; width: auto; transform: none; top: 8px; }
-    .flowbar.meas { bottom: 12px; top: auto; }
     .detail { top: auto; left: 0; right: 0; bottom: 0; width: auto; max-height: 55%; height: auto; }
-    .legend { bottom: 40px; right: 12px; }
   }
-
 </style>

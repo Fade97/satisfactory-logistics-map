@@ -1,38 +1,41 @@
 <script lang="ts">
-  import { stations, live, factory, status, storage } from '../lib/api';
+  import { stations, live, factory, status, storage, fetchJson } from '../lib/api';
   import { matches } from '../lib/fuzzy';
-  import ItemPicker from '../lib/ItemPicker.svelte';
   import { toMap } from '../lib/router';
+  import Segmented from '../lib/Segmented.svelte';
   import { C, MODE_LABEL, fmtNum, dur, ago } from '../lib/fmt';
-  import type { Station } from '../lib/types';
+  import type { Item, Station, StorageBox } from '../lib/types';
+  import { stationKey } from '../lib/scene';
   import { tn, both } from '../lib/names';
   import { t, tr, lx, locale } from '../lib/i18n';
 
   let view = $state<'check' | 'routes' | 'trainflow' | 'fills' | 'storage' | 'plan' | 'vehicles'>('check');
   let sched = $state<any[] | null>(null);
-  $effect(() => { if (view === 'check') fetch('/api/schedule').then(r => r.json()).then(d => (sched = d)); });
-  const VERD: Record<string, [string, string]> = { bottleneck: [tr('bottleneck'), C.bad], tight: [tr('tight'), C.warn], ok: [tr('sufficient'), C.ok], unknown: [tr('not measured yet'), '#6f6b64'] };
+  $effect(() => { if (view === 'check') fetchJson<any[]>('/api/schedule').then(d => (sched = d)).catch(() => {}); });
+  const VERD: Record<string, [string, string]> = { bottleneck: [tr('bottleneck'), C.bad], tight: [tr('tight'), C.warn], ok: [tr('sufficient'), C.ok], unknown: [tr('not measured yet'), C.none] };
   const schedSorted = $derived((sched || []).flatMap(r => r.flows.map((f: any) => ({ r, f })))
     .sort((a, b) => ['bottleneck', 'tight', 'unknown', 'ok'].indexOf(a.f.verdict) - ['bottleneck', 'tight', 'unknown', 'ok'].indexOf(b.f.verdict)
       || (b.f.need || 0) - (a.f.need || 0)));
   let stockQ = $state('');
   // Storage: total per item across all containers/tanks, plus the individual locations
   const stock = $derived.by(() => {
-    const m = new Map<string, { item: string; amount: number; n: number; full: number; list: any[] }>();
+    const m = new Map<string, { item: string; amount: number; n: number; full: number; list: StorageBox[] }>();
     for (const c of $storage || []) for (const i of c.items) {
       const e = m.get(i.item) || { item: i.item, amount: 0, n: 0, full: 0, list: [] };
       e.amount += i.amount; e.n++; if ((c.fill ?? 0) > .98) e.full++; e.list.push(c); m.set(i.item, e);
     }
+    for (const e of m.values()) e.list.sort((a, b) => (b.fill ?? 0) - (a.fill ?? 0));     // fullest first
     return [...m.values()].filter(e => matches(stockQ, both(e.item))).sort((a, b) => b.amount - a.amount);
   });
   let stockOpen = $state<string | null>(null);
   const empty = $derived(($storage || []).filter(c => !c.items.length).length);
+  const fullN = $derived(($storage || []).filter(c => (c.fill ?? 0) > .98).length);
   let flowH = $state(24);
   let trainFlow = $state<{ hours: number; stations: Record<string, Record<string, { '+'?: number; '-'?: number }>> } | null>(null);
-  $effect(() => { if (view === 'trainflow') fetch('/api/train-flow?h=' + flowH).then(r => r.json()).then(d => (trainFlow = d)); });
+  $effect(() => { if (view === 'trainflow') fetchJson('/api/train-flow?h=' + flowH).then(d => (trainFlow = d)).catch(() => {}); });
+  const trainFlowRows = $derived(Object.entries(trainFlow?.stations || {}).sort((a, b) => a[0].localeCompare(b[0], locale())));
   const S = $derived($stations);
-  const key = (s: Station) => 'station:' + s.id.split('.').pop();
-  const go = (s: Station) => toMap(key(s), s.pos[0] / 100, s.pos[1] / 100);
+  const goToStation = (s: Station) => toMap(stationKey(s), s.pos[0] / 100, s.pos[1] / 100);
 
   // Truck routes: vehicle → stations, throughput from round-trip time, demand from the item balance
   const routes = $derived.by(() => {
@@ -64,7 +67,9 @@
     return rows;
   });
   // Warning logic: loading station full = pickup not keeping up; unloading station empty = delivery not keeping up
-  const problems = $derived(fills.filter(r => (r.mode === 'load' && r.fill > .9) || (r.mode === 'unload' && r.fill < .05)));
+  const isProblem = (r: { mode: string; fill: number }) => (r.mode === 'load' && r.fill > .9) || (r.mode === 'unload' && r.fill < .05);
+  const problems = $derived(fills.filter(isProblem));
+  const fillsByLevel = $derived([...fills].sort((a, b) => b.fill - a.fill));
 
   // Network map: train routes as metro lines, stops on one axis per line
   const LINE_COL = ['#f59a23', '#5b9bd5', '#4cc38a', '#b58be8', '#e2b93b', '#e07b9b', '#6cc4d8'];
@@ -76,6 +81,13 @@
     lines.forEach(r => new Set(r.stops.map(s => s.ident)).forEach(i => shared.set(i, (shared.get(i) || 0) + 1)));
     return { lines: lines.map((r, i) => ({ r, color: LINE_COL[i % LINE_COL.length], stops: r.stops.map(s => ({ ...s, st: byIdent.get(s.ident), shared: (shared.get(s.ident) || 0) > 1 })) })) };
   });
+  // Vehicles table: trains and trucks in one shape
+  const vehicles = $derived([
+    ...($live?.trains || []).map(v => ({ key: 'train:' + v.name, name: v.name, type: tr('Train'), pos: v.pos, speed: v.speed,
+      problem: v.derailed ? tr('derailed') : null, status: v.status, autopilot: false, cargo: null as Item | null, payload: v.payload })),
+    ...($live?.trucks || []).map(v => ({ key: 'truck:' + (v.id || v.name), name: v.name, type: v.type, pos: v.pos, speed: v.speed,
+      problem: v.fuel === false ? tr('out of fuel') : null, status: null as string | null, autopilot: v.autopilot, cargo: v.cargo, payload: null as number | null })),
+  ]);
   const trainAt = (ident: string) => {
     const st = S?.trains.find(t => t.ident === ident);
     return st ? ($live?.trains || []).filter(t => t.station === st.name) : [];
@@ -87,9 +99,7 @@
   <p class="src">{S ? $t('{trucks} truck stations, {trains} train stations, {routes} train timetables · updated {ago}', { trucks: S.trucks.length, trains: S.trains.length, routes: S.routes.length, ago: ago($status?.save?.mtime) }) : $t('loading …')}</p>
 
   <div class="seg">
-    {#each [['check', $t('Schedule check')], ['routes', $t('Truck routes')], ['trainflow', $t('Train throughput')], ['fills', $t('Fill levels')], ['storage', $t('Storage')], ['plan', $t('Train network')], ['vehicles', $t('Vehicles')]] as [k, l]}
-      <button class:on={view === k} onclick={() => (view = k as any)}>{l}</button>
-    {/each}
+    <Segmented bind:value={view} options={[['check', $t('Schedule check')], ['routes', $t('Truck routes')], ['trainflow', $t('Train throughput')], ['fills', $t('Fill levels')], ['storage', $t('Storage')], ['plan', $t('Train network')], ['vehicles', $t('Vehicles')]]} />
   </div>
 
   {#if view === 'check'}
@@ -122,7 +132,7 @@
             <tr>
               <td>{r.name}<div class="muted small">{r.type}{r.fuel === false ? ' · ' + $t('out of fuel') : ''}{r.stale ? ' · ' + $t('not docked for {t}', { t: dur(r.last / 60) }) : ''}</div></td>
               <td>{$tn(r.item) || '—'}</td>
-              <td>{#each r.stops as s}<button class="lk" onclick={() => go(s)}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>{/each}</td>
+              <td>{#each r.stops as s}<button class="lk" onclick={() => goToStation(s)}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>{/each}</td>
               <td class="n">{dur(r.round / 60)}</td>
               <td class="n">{r.per_min ? fmtNum(r.per_min) : '—'}</td>
               <td class="n hide-m muted">{r.need != null ? fmtNum(r.need) : '—'}</td>
@@ -136,15 +146,15 @@
 
   {:else if view === 'trainflow'}
     <div class="seg small">
-      {#each [[6, '6 h'], [24, '24 h'], [168, $t('7 days')]] as [h, l]}<button class:on={flowH === h} onclick={() => (flowH = +h)}>{l}</button>{/each}
+      <Segmented bind:value={flowH} options={[[6, '6 h'], [24, '24 h'], [168, $t('7 days')]]} />
     </div>
     <div class="panel card tbl">
       <table class="t">
         <thead><tr><th>{$t('Rail station')}</th><th>{$t('Item')}</th><th class="n">{$t('loaded /min')}</th><th class="n">{$t('unloaded /min')}</th></tr></thead>
         <tbody>
-          {#each Object.entries(trainFlow?.stations || {}).sort((a, b) => a[0].localeCompare(b[0], locale())) as [st, items]}
+          {#each trainFlowRows as [st, items]}
             {#each Object.entries(items) as [it, v], i}
-              <tr class:click={i === 0} onclick={() => { const s = S?.trains.find(x => x.name === st); if (s) go(s); }}>
+              <tr class:click={i === 0} onclick={() => { const s = S?.trains.find(x => x.name === st); if (s) goToStation(s); }}>
                 <td>{i === 0 ? st : ''}</td><td>{$tn(it)}</td>
                 <td class="n">{v['+'] ? fmtNum(v['+']) : '–'}</td><td class="n">{v['-'] ? fmtNum(v['-']) : '–'}</td></tr>
             {/each}
@@ -157,7 +167,7 @@
     </div>
   {:else if view === 'storage'}
     <div class="lh2"><input class="field" style="max-width:280px" type="search" bind:value={stockQ} placeholder={$t('Filter by item, e.g. screws')} />
-      <span class="muted small">{$t('{n} containers and tanks · {empty} empty · {full} full', { n: ($storage || []).length, empty, full: ($storage || []).filter(c => (c.fill ?? 0) > .98).length })}</span></div>
+      <span class="muted small">{$t('{n} containers and tanks · {empty} empty · {full} full', { n: ($storage || []).length, empty, full: fullN })}</span></div>
     <div class="panel card tbl">
       <table class="t">
         <thead><tr><th>{$t('Item')}</th><th class="n">{$t('Stock')}</th><th class="n">{$t('Storage')}</th><th class="n">{$t('of which full')}</th></tr></thead>
@@ -167,10 +177,10 @@
               <td>{$tn(e.item)}</td><td class="n">{fmtNum(e.amount)}</td><td class="n">{e.n}</td><td class="n">{e.full || '–'}</td></tr>
             {#if stockOpen === e.item}
               <tr class="exp"><td colspan="4"><div class="lg">
-                {#each e.list.sort((a, b) => (b.fill ?? 0) - (a.fill ?? 0)) as c}
+                {#each e.list as c}
                   <button class="lk" onclick={() => toMap('', c.pos[0], c.pos[1])}>
-                    <span class="bar mini"><i style="width:{(c.fill ?? 0) * 100}%;background:{(c.fill ?? 0) > .98 ? C.bad : '#c3bfb7'}"></i></span>
-                    {fmtNum(c.items.find((i: any) => i.item === e.item)?.amount)} · {c.cls.includes('Tank') ? $t('Tank') : $t('Container')} · {c.pos[0]} / {c.pos[1]} · {c.z} m</button>
+                    <span class="bar mini"><i style="width:{(c.fill ?? 0) * 100}%;background:{(c.fill ?? 0) > .98 ? C.bad : C.neutral}"></i></span>
+                    {fmtNum(c.items.find(i => i.item === e.item)?.amount)} · {c.cls.includes('Tank') ? $t('Tank') : $t('Container')} · {c.pos[0]} / {c.pos[1]} · {c.z} m</button>
                 {/each}
               </div></td></tr>
             {/if}
@@ -183,16 +193,16 @@
     {#if problems.length}
       <div class="panel card warnbox"><h2>{$t('Needs attention')}</h2>
         {#each problems as p}
-          <button class="lk" onclick={() => go(p.s)}><span class="dot" style="background:{C.bad}"></span>{p.label}
+          <button class="lk" onclick={() => goToStation(p.s)}><span class="dot" style="background:{C.bad}"></span>{p.label}
             <span class="muted">{p.mode === 'load' ? $t('almost full: pickup is not keeping up') : $t('empty: delivery is not keeping up')} · {$tn(p.item)}</span></button>
         {/each}
       </div>
     {/if}
     <div class="fills">
-      {#each fills.sort((a, b) => b.fill - a.fill) as r}
-        <button class="fr" onclick={() => go(r.s)}>
+      {#each fillsByLevel as r}
+        <button class="fr" onclick={() => goToStation(r.s)}>
           <span class="nm">{r.label}<span class="muted small">{MODE_LABEL[r.mode] ? $t(MODE_LABEL[r.mode]) : r.mode} · {$tn(r.item)}</span></span>
-          <span class="bar"><i style="width:{r.fill * 100}%;background:{(r.mode === 'load' && r.fill > .9) || (r.mode === 'unload' && r.fill < .05) ? C.bad : C[r.mode as 'load'] || '#c3bfb7'}"></i></span>
+          <span class="bar"><i style="width:{r.fill * 100}%;background:{isProblem(r) ? C.bad : C[r.mode as 'load'] || C.neutral}"></i></span>
           <span class="num">{Math.round(r.fill * 100)} %</span>
         </button>
       {/each}
@@ -206,7 +216,7 @@
             <div class="lh"><span class="lbadge" style="background:{l.color}">{l.r.name}</span>{#if !l.r.self_driving}<span class="muted small">{$t('Autopilot off')}</span>{/if}</div>
             <div class="track" style="--c:{l.color}">
               {#each l.stops as s, i}
-                <button class="stop" class:shared={s.shared} onclick={() => s.st && go(s.st)}>
+                <button class="stop" class:shared={s.shared} onclick={() => s.st && goToStation(s.st)}>
                   <span class="node"></span>
                   <span class="sn">{s.name}</span>
                   {#if trainAt(s.ident).length}<span class="tr">▶ {$t('Train here')}</span>{/if}
@@ -225,12 +235,12 @@
       <table class="t">
         <thead><tr><th>{$t('Name')}</th><th>{$t('Type')}</th><th>{$t('State')}</th><th class="n">{$t('Speed')}</th><th class="hide-m">{$t('Cargo')}</th></tr></thead>
         <tbody>
-          {#each [...($live?.trains || []).map(t => ({ ...t, typeLabel: tr('Train'), k: 'train:' + t.name })), ...($live?.trucks || []).map(t => ({ ...t, typeLabel: t.type, k: 'truck:' + (t.id || t.name) }))] as v}
-            <tr class="click" onclick={() => toMap(v.k, v.pos[0] / 100, v.pos[1] / 100)}>
-              <td>{v.name}</td><td>{v.typeLabel}</td>
-              <td>{(v as any).derailed ? '⚠ ' + $t('derailed') : (v as any).fuel === false ? '⚠ ' + $t('out of fuel') : (v as any).status ? $lx((v as any).status) : ((v as any).autopilot ? $t('Autopilot') : '—')}</td>
+          {#each vehicles as v}
+            <tr class="click" onclick={() => toMap(v.key, v.pos[0] / 100, v.pos[1] / 100)}>
+              <td>{v.name}</td><td>{v.type}</td>
+              <td>{v.problem ? '⚠ ' + v.problem : v.status ? $lx(v.status) : (v.autopilot ? $t('Autopilot') : '—')}</td>
               <td class="n">{v.speed != null ? fmtNum(v.speed) + ' km/h' : '—'}</td>
-              <td class="hide-m">{(v as any).cargo ? $tn((v as any).cargo.item) + ' ' + fmtNum((v as any).cargo.amount) : (v as any).payload ? fmtNum((v as any).payload) + ' t' : '—'}</td>
+              <td class="hide-m">{v.cargo ? $tn(v.cargo.item) + ' ' + fmtNum(v.cargo.amount) : v.payload ? fmtNum(v.payload) + ' t' : '—'}</td>
             </tr>
           {/each}
         </tbody>
@@ -243,8 +253,8 @@
 
 <style>
   .seg { display: inline-flex; flex-wrap: wrap; margin-bottom: 14px; }
-  .seg button { background: var(--plate); border: 1px solid var(--seam); padding: 6px 12px; font-family: var(--cond); font-weight: 600; font-size: 15px; color: var(--text2); margin-right: -1px; }
-  .seg button.on { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); }
+  .seg :global(button) { background: var(--plate); border: 1px solid var(--seam); padding: 6px 12px; font-family: var(--cond); font-weight: 600; font-size: 15px; color: var(--text2); margin-right: -1px; }
+  .seg :global(button.on) { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); }
   .tbl { padding: 4px 8px 8px; overflow-x: auto; }
   .seg.small { margin: -4px 0 12px; }
   .lh2 { display: flex; gap: 14px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
@@ -252,7 +262,7 @@
   .lg .lk { display: flex; gap: 8px; align-items: center; }
   .bar.mini { width: 50px; height: 5px; flex: none; }
   .exp td { background: var(--steel); }
-  .seg.small button { font-size: 13px; padding: 3px 10px; font-family: var(--body); font-weight: 500; }
+  .seg.small :global(button) { font-size: 13px; padding: 3px 10px; font-family: var(--body); font-weight: 500; }
   .small { font-size: 12px; }
   .lk { display: flex; align-items: center; gap: 7px; background: none; border: none; padding: 2px 0; text-align: left; font-size: 13px; flex-wrap: wrap; }
   .lk:hover { color: var(--ficsit); }

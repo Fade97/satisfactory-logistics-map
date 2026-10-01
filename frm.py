@@ -8,9 +8,11 @@ Address via FRM_URL (e.g. http://gameserver:8080). Empty = off: the map then run
 """
 import datetime, json, os, sys, urllib.error, urllib.request
 
+from gamedata import is_fluid
+
 BASE = os.environ.get('FRM_URL', '').rstrip('/')
 TIMEOUT = float(os.environ.get('FRM_TIMEOUT', '8'))
-HERE = os.path.dirname(os.path.abspath(__file__))
+CMS_TO_KMH = 0.036                          # FRM speeds are cm/s
 
 
 class FrmError(Exception):
@@ -25,14 +27,6 @@ def get(endpoint, timeout=None):
             return json.loads(r.read().decode('utf-8', 'replace'))
     except Exception as e:
         raise FrmError('%s: %s' % (endpoint, repr(e)[:120]))
-
-
-def available(timeout=3):
-    try:
-        get('getSessionInfo', timeout=timeout)
-        return True
-    except FrmError:
-        return False
 
 
 def _xyz(o):
@@ -62,7 +56,7 @@ def trains():
     for t in get('getTrains'):
         out.append(dict(name=t.get('Name') or '(unnamed)', pos=_xyz(t),
                         status=t.get('Status'), station=t.get('TrainStation'),
-                        speed=round(abs(float(t.get('ForwardSpeed') or 0)) * 0.036, 1),   # cm/s -> km/h
+                        speed=round(abs(float(t.get('ForwardSpeed') or 0)) * CMS_TO_KMH, 1),
                         derailed=bool(t.get('Derailed')),
                         payload=round(float(t.get('PayloadMass') or 0)),
                         max_payload=round(float(t.get('MaxPayloadMass') or 0)),
@@ -70,16 +64,9 @@ def trains():
                         cargo=_train_cargo(t),
                         wagons=sum(1 for v in t.get('Vehicles') or [] if 'Wagon' in (v.get('ClassName') or '')),
                         fluid_wagons=sum(1 for v in t.get('Vehicles') or [] if 'Wagon' in (v.get('ClassName') or '') and
-                                         any(ITEM_FLUID.get(i.get('ClassName')) for i in v.get('Inventory') or [])),
+                                         any(is_fluid(i.get('ClassName') or '') for i in v.get('Inventory') or [])),
                         stops=[s.get('StationName') for s in (t.get('TimeTable') or [])]))
     return sorted(out, key=lambda t: t['name'])
-
-
-try:                                          # fluid items (for wagon capacity: 32 stacks or 1600 m³)
-    import json as _j
-    ITEM_FLUID = {k: v.get('liquid') for k, v in _j.load(open(os.path.join(HERE, 'gamedata', 'data1.0.json')))['items'].items()}
-except Exception:
-    ITEM_FLUID = {}
 
 
 def _train_cargo(t):
@@ -97,7 +84,7 @@ def trucks():
     rows = [(v, 'Truck') for v in get('getTruck')] + [(v, 'Tractor') for v in get('getTractor')]
     for v, vtype in rows:
         out.append(dict(id=v.get('ID'), type=vtype, name=v.get('Name') or '(unnamed)', pos=_xyz(v),
-                        speed=round(abs(float(v.get('ForwardSpeed') or 0)) * 0.036, 1),
+                        speed=round(abs(float(v.get('ForwardSpeed') or 0)) * CMS_TO_KMH, 1),
                         autopilot=bool(v.get('Autopilot')), fuel=bool(v.get('HasFuel')),
                         cargo=_first_item(v)))
     return sorted(out, key=lambda t: t['name'])

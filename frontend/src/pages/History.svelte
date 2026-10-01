@@ -3,29 +3,37 @@
   import { fmtNum, SERIES, clock } from '../lib/fmt';
   import LineChart from '../lib/LineChart.svelte';
   import ItemPicker from '../lib/ItemPicker.svelte';
+  import Segmented from '../lib/Segmented.svelte';
   import { tn } from '../lib/names';
   import { t, tr, lx, locale } from '../lib/i18n';
+  import { KEYS, loadJson, saveJson } from '../lib/storage';
 
   let range = $state(86400);
-  let items = $state<string[]>(JSON.parse(localStorage.getItem('fgmap.histItems') || '[]'));
+  let items = $state<string[]>(loadJson<string[]>(KEYS.histItems, []));
   let prod = $state<any[]>([]), machines = $state<any[]>([]), growth = $state<Record<string, any[]>>({});
   const all = $derived(($factory?.balance || []).map(b => b.item));
 
-  $effect(() => { localStorage.setItem('fgmap.histItems', JSON.stringify(items)); });
+  $effect(() => { saveJson(KEYS.histItems, items); });
   $effect(() => {
     // default: the four items with the highest production
     if (!items.length && $factory) items = [...$factory.balance].sort((a, b) => b.prod - a.prod).slice(0, 4).map(b => b.item);
   });
+  let req = 0;                           // only the latest request may set the charts (range/items can change meanwhile)
   async function load() {
-    const since = Date.now() / 1000 - range;
-    if (items.length) {
-      const r = await series(items.map(i => 'prod:' + i), since);
-      prod = items.map((it, i) => ({ key: it, label: $tn(it), points: r.data['prod:' + it] || [], color: SERIES[i % SERIES.length] }));
-    } else prod = [];
-    const m = await series(['machines:running', 'machines:partial', 'machines:stopped'], since);
-    machines = [['running', SERIES[2]], ['partial', SERIES[4]], ['stopped', SERIES[5]]].map(([k, c]) => ({ key: k, label: tr(k), points: m.data['machines:' + k] || [], color: c }));
-    const g = await series(['count:*'], Date.now() / 1000 - 400 * 86400);
-    growth = g.data;
+    const my = ++req, since = Date.now() / 1000 - range, its = [...items];
+    try {
+      if (its.length) {
+        const r = await series(its.map(i => 'prod:' + i), since);
+        if (my !== req) return;
+        prod = its.map((it, i) => ({ key: it, label: $tn(it), points: r.data['prod:' + it] || [], color: SERIES[i % SERIES.length] }));
+      } else prod = [];
+      const m = await series(['machines:running', 'machines:partial', 'machines:stopped'], since);
+      if (my !== req) return;
+      machines = [['running', SERIES[2]], ['partial', SERIES[4]], ['stopped', SERIES[5]]].map(([k, c]) => ({ key: k, label: tr(k), points: m.data['machines:' + k] || [], color: c }));
+      const g = await series(['count:*'], Date.now() / 1000 - 400 * 86400);
+      if (my !== req) return;
+      growth = g.data;
+    } catch { /* history unavailable: keep the charts shown so far */ }
   }
   $effect(() => { void range; void items.length; load(); });
 
@@ -48,9 +56,7 @@
   </div>
 
   <div class="seg">
-    {#each [[10800, '3 h'], [86400, '24 h'], [172800, '48 h'], [604800, $t('{n} days', { n: 7 })], [2592000, $t('{n} days', { n: 30 })], [7776000, $t('{n} days', { n: 90 })]] as [s, l]}
-      <button class:on={range === s} onclick={() => (range = +s)}>{l}</button>
-    {/each}
+    <Segmented bind:value={range} options={[[10800, '3 h'], [86400, '24 h'], [172800, '48 h'], [604800, $t('{n} days', { n: 7 })], [2592000, $t('{n} days', { n: 30 })], [7776000, $t('{n} days', { n: 90 })]]} />
   </div>
 
   <div class="panel card">
@@ -85,16 +91,15 @@
 
 <style>
   .seg { display: inline-flex; flex-wrap: wrap; margin-bottom: 14px; }
-  .seg button { background: var(--plate); border: 1px solid var(--seam); padding: 4px 12px; font-size: 13px; color: var(--text2); margin-right: -1px; }
-  .seg button.on { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); }
+  .seg :global(button) { background: var(--plate); border: 1px solid var(--seam); padding: 4px 12px; font-size: 13px; color: var(--text2); margin-right: -1px; }
+  .seg :global(button.on) { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); }
   .hd { display: flex; flex-wrap: wrap; gap: 10px 20px; align-items: center; margin-bottom: 10px; }
   .hd h2 { margin: 0; }
   .pick { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .chip { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--seam); padding: 2px 4px 2px 8px; font-size: 13px; }
   .chip i { width: 12px; height: 3px; }
   .chip button { background: none; border: none; color: var(--dim); font-size: 11px; }
-  .add { position: relative; }
-  .add { width: 220px; display: inline-flex; }
+  .add { position: relative; width: 220px; display: inline-flex; }
   .small { font-size: 12px; }
   .log { list-style: none; padding: 0; margin: 8px 0 0; max-height: 400px; overflow: auto; }
   .log li { display: flex; gap: 12px; padding: 5px 0; border-bottom: 1px solid #2c2e31; font-size: 13px; }

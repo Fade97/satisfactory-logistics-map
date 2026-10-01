@@ -1,7 +1,18 @@
 // Data access: polls the API with ETags, keeps the state in Svelte stores.
 import { writable, type Writable } from 'svelte/store';
-import type { Live, Stations, Factory, Geo, Node, Status, Progress, GameEvent, Pin } from './types';
+import type { Live, Stations, Factory, Geo, Node, Status, Progress, GameEvent, Pin, Collectibles, StorageBox, Sink, DetailLayer } from './types';
 import { tr } from './i18n';
+import { KEYS } from './storage';
+
+/** fetch + JSON; throws on HTTP errors (message = the server's `error` field if any), so error bodies never end up as data. */
+export async function fetchJson<T = any>(url: string, init?: RequestInit): Promise<T> {
+  const r = await fetch(url, init);
+  if (!r.ok) {
+    const e = await r.json().catch(() => null);
+    throw new Error(e?.error || tr('Error') + ' ' + r.status);
+  }
+  return r.json();
+}
 
 const etags: Record<string, string> = {};
 let cached = false;                        // last responses came from the service worker cache
@@ -25,9 +36,9 @@ export const geo: Writable<Geo | null> = writable(null);
 export const nodes: Writable<Node[] | null> = writable(null);
 export const powerlines: Writable<number[][] | null> = writable(null);
 export const flow: Writable<Record<string, number[][][]> | null> = writable(null);
-export const collectibles: Writable<any | null> = writable(null);
-export const storage: Writable<any[] | null> = writable(null);
-export const sink: Writable<any | null> = writable(null);
+export const collectibles: Writable<Collectibles | null> = writable(null);
+export const storage: Writable<StorageBox[] | null> = writable(null);
+export const sink: Writable<Sink | null> = writable(null);
 export const status: Writable<Status | null> = writable(null);
 export const progress: Writable<Progress | null> = writable(null);
 export const events: Writable<GameEvent[]> = writable([]);
@@ -50,17 +61,16 @@ function poll<T>(name: string, store: Writable<T | null>, every: number) {
 let lastEvent = 0;
 async function pollEvents() {
   try {
-    const r = await fetch('/api/events?limit=200');
-    const d: GameEvent[] = await r.json();
+    const d = await fetchJson<GameEvent[]>('/api/events?limit=200');
     if (d.length && d[0].id !== lastEvent) { lastEvent = d[0].id; events.set(d); }
   } catch { /* offline, next attempt */ }
 }
 
 export async function loadPins() {
-  try { pins.set(await (await fetch('/api/pins')).json()); } catch { /* */ }
+  try { pins.set(await fetchJson<Pin[]>('/api/pins')); } catch { /* offline, keep the last state */ }
 }
 export async function loadTrails() {
-  try { trails.set(await (await fetch('/api/trails')).json()); } catch { /* */ }
+  try { trails.set(await fetchJson<Record<string, number[][]>>('/api/trails')); } catch { /* offline, keep the last state */ }
 }
 
 export function start() {
@@ -83,16 +93,26 @@ export function start() {
 
 export async function series(keys: string[], since: number) {
   const q = keys.map(k => 'k=' + encodeURIComponent(k)).join('&');
-  const r = await fetch(`/api/series?${q}&since=${Math.floor(since)}`);
-  return r.json() as Promise<{ res: string; data: Record<string, [number, number][]> }>;
+  return fetchJson<{ res: string; data: Record<string, [number, number][]> }>(`/api/series?${q}&since=${Math.floor(since)}`);
+}
+
+/** Detail layer (binary package, ~180 KB gzip): header [n tiles, n walls] (Int32), tiles x/y/z (Int16 ×3),
+    tile meta (Uint8, padded to 2 bytes), walls ax/ay/bx/by/z (Int16 ×5); null if not available. */
+export async function loadDetail(): Promise<DetailLayer | null> {
+  const r = await fetch('/api/detail');
+  if (!r.ok) return null;
+  const buf = await r.arrayBuffer();
+  const h = new Int32Array(buf, 0, 2), nt = h[0], nw = h[1];
+  const tiles = new Int16Array(buf, 8, 3 * nt), tmeta = new Uint8Array(buf, 8 + 6 * nt, nt);
+  const wOff = 8 + 6 * nt + nt + ((nt % 2) ? 1 : 0);
+  return { tiles, tmeta, walls: new Int16Array(buf, wOff, 5 * nw) };
 }
 
 // ---------------------------------------------------------------- Writing (password)
-const PW_KEY = 'fgmap.pw', AUTHOR_KEY = 'fgmap.author';
-export const password = writable<string>(localStorage.getItem(PW_KEY) || '');
-export const author = writable<string>(localStorage.getItem(AUTHOR_KEY) || '');
-password.subscribe(v => v ? localStorage.setItem(PW_KEY, v) : localStorage.removeItem(PW_KEY));
-author.subscribe(v => localStorage.setItem(AUTHOR_KEY, v));
+export const password = writable<string>(localStorage.getItem(KEYS.password) || '');
+export const author = writable<string>(localStorage.getItem(KEYS.author) || '');
+password.subscribe(v => v ? localStorage.setItem(KEYS.password, v) : localStorage.removeItem(KEYS.password));
+author.subscribe(v => localStorage.setItem(KEYS.author, v));
 
 let pw = '';
 password.subscribe(v => (pw = v));

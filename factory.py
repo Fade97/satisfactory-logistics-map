@@ -7,41 +7,41 @@ from gamedata/resource_nodes.json (from satisfactory-savegame-prometheus-exporte
 
     python3 factory.py [save.sav]      # short statistics
 """
-import collections, json, math, os, sys
-import sbp, sav, stations
+import collections, json, math, os, re, sys
+import sbp, sav, gamedata
+from geo import simplify
+from gamedata import GD, ITEMS, RECIPES, BUILDINGS, is_fluid
 
 EXTRACT = 'Extracting '                  # recipe name of extractors: 'Extracting Iron Ore'
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GD = json.load(open(os.path.join(HERE, 'gamedata', 'data1.0.json')))
 NODES = json.load(open(os.path.join(HERE, 'gamedata', 'resource_nodes.json')))
-ITEMS, RECIPES, BUILDINGS, GENS = GD['items'], GD['recipes'], GD['buildings'], GD['generators']
+GENS = gamedata.GENERATORS
 # node types the dataset names differently from the item
 NODE_ITEM = {'Desc_LiquidOilWell_C': 'Desc_LiquidOil_C', 'Desc_Geyser_C': None}
 
 PURITY = {0.5: 'impure', 1.0: 'normal', 2.0: 'pure'}
 EXTRACTORS = {'Build_MinerMk1_C', 'Build_MinerMk2_C', 'Build_MinerMk3_C', 'Build_OilPump_C',
               'Build_WaterPump_C', 'Build_FrackingExtractor_C'}
-BELT_SPEED = {'Mk1': 60, 'Mk2': 120, 'Mk3': 270, 'Mk4': 480, 'Mk5': 780, 'Mk6': 1200}
 NEVER = 3e38                                   # mTimeSinceStartStopProducing if never toggled
+GEN_CLOCK_EXPONENT = 1 / 1.3                   # generator output vs. clock (simplified)
+WATER_PUMP_RATE = 120.0                        # m³/min at 100 %
+BIOMASS_BURNER_MW = 20                         # not in the generator dataset
+BATTERY_MWH = 100.0
+TANK_M3 = {'Build_IndustrialTank_C': 2400.0, 'Build_PipeStorageTank_C': 400.0}
+CONTAINER_SLOTS = {'Build_StorageContainerMk1_C': 24, 'Build_StorageContainerMk2_C': 48, 'Build_CentralStorage_C': 0,
+                   'Build_StorageIntegrated_C': 0}
 
-
-def item(path):
-    """Class name → English display name from the game data (fallback: stations.item_name)."""
-    if not path:
-        return None
-    k = path.split('.')[-1]
-    return ITEMS[k]['name'] if k in ITEMS else stations.item_name(path)
-
-
-def is_fluid(path):
-    k = path.split('.')[-1]
-    return bool(ITEMS.get(k, {}).get('liquid'))
+item = gamedata.item_name                      # class/path → English display name
 
 
 def building_name(cls):
     b = BUILDINGS.get(cls.replace('Build_', 'Desc_', 1))
-    return b['name'] if b else cls.replace('Build_', '').rstrip('_C').replace('_', ' ')
+    return b['name'] if b else cls.replace('Build_', '').removesuffix('_C').replace('_', ' ')
+
+
+def _is_pipe(cls):
+    return cls.startswith('Build_Pipeline') and not any(x in cls for x in ('Support', 'Junction', 'Pump', 'FlowIndicator'))
 
 
 class Save:
@@ -54,6 +54,7 @@ class Save:
         for n, (h, _) in self.idx.items():
             self.by[sbp.short(h['cls'])].append(n)
         self._p = {}
+        self._fluids = None                      # pipe network ID → fluid name, see pipe_fluids()
 
     def props(self, n):
         if n not in self._p:
@@ -121,15 +122,16 @@ def _players(S):
     return {h: next(iter(n)) for h, n in names.items() if h is not None and len(n) == 1 and None not in n}
 
 
-def machine_state(d, rec, cls):
-    """State + reason from save flags. The game measures productivity over 5-minute windows."""
+def machine_state(d, rec, cls, always_on=False):
+    """State + productivity % from save flags. The game measures productivity over 5-minute windows.
+    Without a recipe a machine is 'off' — except extractors and always_on (generators)."""
     last_d = d.get('mLastProductivityMeasurementDuration') or 0
     last_p = d.get('mLastProductivityMeasurementProduceDuration') or 0
     cur_d = d.get('mCurrentProductivityMeasurementDuration') or 0
     cur_p = d.get('mCurrentProductivityMeasurementProduceDuration') or 0
     tot = last_d + cur_d
     pct = round(100 * (last_p + cur_p) / tot) if tot > 1 else 0
-    if cls not in EXTRACTORS and not rec:
+    if not always_on and cls not in EXTRACTORS and not rec:
         return 'off', 0
     if d.get('mIsProductionPaused'):
         return 'paused', pct
@@ -150,9 +152,8 @@ def _reason(S, name, d, rec):
     out_inv = dict(S.inventory((d.get('mOutputInventory') or ['', ''])[1]))
     in_inv = dict(S.inventory((d.get('mInputInventory') or ['', ''])[1]))
     for p in r['products']:
-        st = ITEMS.get(p['item'], {}).get('stackSize', 100)
         have = sum(v for k, v in out_inv.items() if k.endswith(p['item']))
-        cap = 50 if ITEMS.get(p['item'], {}).get('liquid') else st
+        cap = gamedata.FLUID_BUFFER if ITEMS.get(p['item'], {}).get('liquid') else gamedata.stack_size(p['item'])
         if have >= cap * 0.95:
             return 'Output full: ' + ITEMS[p['item']]['name']
     for i in r['ingredients']:
@@ -161,6 +162,36 @@ def _reason(S, name, d, rec):
         if have < need:
             return 'Missing: ' + ITEMS.get(i['item'], {}).get('name', i['item'])
     return None
+
+
+def _extractor_output(d, c, m, clock):
+    """Node, purity, item and nominal rate of an extractor (miner, pump, well)."""
+    res = (d.get('mExtractableResource') or ['', ''])[1]
+    node = NODES.get(sbp.short(res).split(':')[-1]) or NODES.get(res.split('.', 1)[-1])
+    mk = GD['miners'].get(c.replace('Build_', 'Desc_', 1))
+    if c == 'Build_WaterPump_C':
+        it, per = 'Desc_Water_C', WATER_PUMP_RATE
+    elif node and mk:
+        it = NODE_ITEM.get(node['item'], node['item'])
+        per = (mk['itemsPerCycle'] / (1000 if mk['allowLiquids'] else 1)) * 60 / mk['extractCycleTime'] * node['purity']
+    else:
+        it, per = None, 0
+    m['node'] = sbp.short(res) if res else None
+    if node:
+        m['purity'] = PURITY.get(node['purity'])
+    if it in ITEMS:
+        m['recipe'] = EXTRACT + ITEMS[it]['name']
+        m['out'] = [dict(item=ITEMS[it]['name'], max=round(per * clock, 2))]
+
+
+def _recipe_io(rec, m, clock):
+    """Recipe name and nominal in/out rates; recipe amounts in the dataset are already m³ for fluids."""
+    r = RECIPES[rec]
+    k = 60.0 / r['time'] * clock
+    m['recipe'] = r['name']
+    m['alt'] = bool(r.get('alternate'))
+    m['out'] = [dict(item=ITEMS[p['item']]['name'], max=round(p['amount'] * k, 2)) for p in r['products']]
+    m['inp'] = [dict(item=ITEMS[i['item']]['name'], max=round(i['amount'] * k, 2)) for i in r['ingredients']]
 
 
 def machines(S, circ, who):
@@ -175,37 +206,15 @@ def machines(S, circ, who):
             rec = (d.get('mCurrentRecipe') or ['', ''])[1].split('.')[-1] or None
             clock = float(d.get('mCurrentPotential') or 1.0)
             state, pct = machine_state(d, rec, c)
-            qx, qy, qz, qw = S.idx[n][0]['rot']
             m = dict(id=sbp.short(n), cls=c, name=building_name(c), pos=_xy(S.pos(n)),
-                     z=round(S.pos(n)[2] / 100), yaw=round(math.degrees(math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz)))), recipe=None, clock=round(clock, 3),
+                     z=round(S.pos(n)[2] / 100), yaw=round(sbp.yaw_from_quat(S.idx[n][0]['rot'])), recipe=None, clock=round(clock, 3),
                      state=state, pct=pct, circuit=_owner_circuit(circ, n),
                      by=who.get(d.get('BuiltBy')), out=[], inp=[],
-                     power=round(meta.get('powerConsumption', 0) * clock ** meta.get('powerConsumptionExponent', 1.321929), 1))
+                     power=round(meta.get('powerConsumption', 0) * clock ** meta.get('powerConsumptionExponent', gamedata.POWER_EXPONENT), 1))
             if c in EXTRACTORS:
-                res = (d.get('mExtractableResource') or ['', ''])[1]
-                node = NODES.get(sbp.short(res).split(':')[-1]) or NODES.get(res.split('.', 1)[-1])
-                mk = GD['miners'].get(c.replace('Build_', 'Desc_', 1))
-                if c == 'Build_WaterPump_C':
-                    it, per = 'Desc_Water_C', 120.0
-                elif node and mk:
-                    it = NODE_ITEM.get(node['item'], node['item'])
-                    per = (mk['itemsPerCycle'] / (1000 if mk['allowLiquids'] else 1)) * 60 / mk['extractCycleTime'] * node['purity']
-                else:
-                    it, per = None, 0
-                m['node'] = sbp.short(res) if res else None
-                if node:
-                    m['purity'] = PURITY.get(node['purity'])
-                if it in ITEMS:
-                    m['recipe'] = EXTRACT + ITEMS[it]['name']
-                    m['out'] = [dict(item=ITEMS[it]['name'], max=round(per * clock, 2))]
+                _extractor_output(d, c, m, clock)
             elif rec in RECIPES:
-                r = RECIPES[rec]
-                k = 60.0 / r['time'] * clock
-                liq = lambda x: 1.0          # recipe amounts in the dataset are already m³ for fluids
-                m['recipe'] = r['name']
-                m['alt'] = bool(r.get('alternate'))
-                m['out'] = [dict(item=ITEMS[p['item']]['name'], max=round(p['amount'] / liq(p['item']) * k, 2)) for p in r['products']]
-                m['inp'] = [dict(item=ITEMS[i['item']]['name'], max=round(i['amount'] / liq(i['item']) * k, 2)) for i in r['ingredients']]
+                _recipe_io(rec, m, clock)
                 if state in ('stopped', 'partial'):
                     m['why'] = _reason(S, n, d, rec)
             for x in m['out'] + m['inp']:
@@ -225,11 +234,11 @@ def generators(S, circ, who):
             fuel = (d.get('mCurrentFuelClass') or ['', ''])[1]
             inv = S.inventory((d.get('mFuelInventory') or ['', ''])[1])
             clock = float(d.get('mCurrentPotential') or 1.0)
-            cap = g.get('powerProduction', 20 if 'Biomass' in c else 0) * clock ** (1 / 1.3)  # simplified
+            cap = g.get('powerProduction', BIOMASS_BURNER_MW if 'Biomass' in c else 0) * clock ** GEN_CLOCK_EXPONENT
             ev = ITEMS.get(fuel.split('.')[-1], {}).get('energyValue') if fuel else None
             # energyValue in MJ per item or per m³ → consumption/min = MW × 60 ÷ MJ
             per_min = (cap * 60 / ev) if ev else None
-            state, pct = machine_state(d, 'gen', c)
+            state, pct = machine_state(d, None, c, always_on=True)
             out.append(dict(id=sbp.short(n), cls=c, name=building_name(c) if 'Integrated' not in c else 'Biomass Burner (HUB)',
                             pos=_xy(S.pos(n)), circuit=_owner_circuit(circ, n),
                             cap=round(cap, 1), producing=bool(d.get('mIsProducing')) or pct > 50, pct=pct,
@@ -245,7 +254,7 @@ def batteries(S, circ):
     for n in S.by['Build_PowerStorageMk1_C']:
         d = S.props(n)
         out.append(dict(id=sbp.short(n), pos=_xy(S.pos(n)), circuit=_owner_circuit(circ, n),
-                        stored=round(float(d.get('mPowerStore') or 0), 1), capacity=100.0))
+                        stored=round(float(d.get('mPowerStore') or 0), 1), capacity=BATTERY_MWH))
     return out
 
 
@@ -263,7 +272,7 @@ def power_lines(S, circ):
         ob = sav.obj(S.idx, n)[1]
         cid = None
         try:                                     # trail: int32 0, (lvl, path) × 2 → connection components
-            r = sbp.R(ob['trail']); r.i32(); r.s(); a = r.s()
+            r = sbp.Reader(ob['trail']); r.i32(); r.s(); a = r.s()
             cid = circ.get(a)
         except Exception:
             pass
@@ -276,8 +285,7 @@ def _spline(S, n):
     h = S.idx[n][0]
     sp = S.props(n).get('mSplineData') or []
     x0, y0 = h['pos'][0], h['pos'][1]
-    qx, qy, qz, qw = h['rot']
-    yaw = math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+    yaw = sbp.quat_yaw_rad(h['rot'])
     cs, sn = math.cos(yaw), math.sin(yaw)
     pts = []
     for pt in sp:
@@ -287,12 +295,11 @@ def _spline(S, n):
 
 
 def lines(S, pred, with_ids=False):
-    import geo
     out, ids = [], []
     for n in S.classes(pred):
         pts = _spline(S, n)
         if len(pts) >= 2:
-            out.append([[round(x), round(y)] for x, y in geo._rdp(pts, geo.TOL)])
+            out.append([[round(x), round(y)] for x, y in simplify(pts)])
             ids.append(sbp.short(n))
     return (out, ids) if with_ids else out
 
@@ -300,28 +307,33 @@ def lines(S, pred, with_ids=False):
 def belt_items(S):
     """Belt ID → item currently on it (most common). Source: raw trail of the FGConveyorChainActor —
     it lists the belts of the chain and the item paths of the cargo. Empty belts are missing."""
-    import re
     out = {}
     for c in [n for k, ns in S.by.items() if k.startswith('FGConveyorChainActor') for n in ns]:
         tr = sav.obj(S.idx, c)[1].get('trail', b'')
         its = collections.Counter(m.decode().split('.')[-1] for m in re.findall(rb'Desc_[A-Za-z0-9_]+\.Desc_[A-Za-z0-9_]+_C', tr))
         if not its:
             continue
-        top = its.most_common(1)[0][0]
-        name = ITEMS[top]['name'] if top in ITEMS else stations.item_name(top)
+        name = item(its.most_common(1)[0][0])
         for b in set(re.findall(rb'PersistentLevel\.(Build_Conveyor[A-Za-z0-9_]+)', tr)):
             out[b.decode()] = name
     return out
 
 
+def pipe_fluids(S):
+    """Pipe network ID → fluid name (FGPipeNetwork.mFluidDescriptor), cached on the Save."""
+    if S._fluids is None:
+        S._fluids = {}
+        for n in S.by['FGPipeNetwork']:
+            d = S.props(n)
+            f = (d.get('mFluidDescriptor') or ['', ''])[1]
+            if f and d.get('mPipeNetworkID') is not None:
+                S._fluids[d['mPipeNetworkID']] = item(f)
+    return S._fluids
+
+
 def pipe_items(S):
-    """Pipe ID → fluid via the pipe network (FGPipeNetwork.mFluidDescriptor ↔ mPipeNetworkID of the connections)."""
-    fluid = {}
-    for n in S.by['FGPipeNetwork']:
-        d = S.props(n)
-        f = (d.get('mFluidDescriptor') or ['', ''])[1]
-        if f and d.get('mPipeNetworkID') is not None:
-            fluid[d['mPipeNetworkID']] = item(f)
+    """Pipe ID → fluid via the pipe network (mPipeNetworkID of the pipe connections)."""
+    fluid = pipe_fluids(S)
     out = {}
     for c in S.by['FGPipeConnectionComponent']:
         nid = S.props(c).get('mPipeNetworkID')
@@ -390,9 +402,9 @@ def _len_km(ls):
 
 def header(path):
     """Play time (s) and session name from the uncompressed save header."""
-    r = sbp.R(open(path, 'rb').read(4096))
-    r.i32(); r.i32(); r.i32()
-    r.s(); r.s(); r.s(); session = r.s()
+    r = sbp.Reader(open(path, 'rb').read(4096))
+    r.i32(); r.i32(); r.i32()                      # header version, save version, build
+    r.s(); r.s(); r.s(); session = r.s()           # save name, map name, map options, session name
     return dict(playtime=r.i32(), session=session)
 
 
@@ -408,7 +420,7 @@ def machine_links(S, mids):
     each machine is attached to the networks of its connections. Returns [(id_a, id_b)] with short IDs.
     """
     owner = lambda p: p.rsplit('.', 1)[0]
-    stop, kind = {}, {}
+    kind = {}
     def k(n):                                     # 'm' machine, 's' separator, 't' transport
         if n not in kind:
             sid = sbp.short(n)
@@ -464,8 +476,7 @@ def _flow(S):
     bi, pi = belt_items(S), pipe_items(S)
     out = collections.defaultdict(list)
     for pred, m in ((lambda c: c.startswith('Build_ConveyorBelt') or c.startswith('Build_ConveyorLift'), bi),
-                    (lambda c: c.startswith('Build_Pipeline') and 'Support' not in c and 'Junction' not in c
-                     and 'Pump' not in c and 'FlowIndicator' not in c, pi)):
+                    (_is_pipe, pi)):
         ls, ids = lines(S, pred, with_ids=True)
         for l, i in zip(ls, ids):
             if i in m:
@@ -500,8 +511,6 @@ def collectibles(S):
 
 def storage(S):
     """Stock per container/tank: item, amount, fill level, position (for the overview and "storage full")."""
-    CAP = {'Build_StorageContainerMk1_C': 24, 'Build_StorageContainerMk2_C': 48, 'Build_CentralStorage_C': 0,
-           'Build_StorageIntegrated_C': 0}
     out = []
     for cls in ('Build_StorageContainerMk1_C', 'Build_StorageContainerMk2_C', 'Build_IndustrialTank_C', 'Build_PipeStorageTank_C'):
         for n in S.by.get(cls, []):
@@ -509,14 +518,14 @@ def storage(S):
             p = S.pos(n)
             if 'Tank' in cls:
                 amt = float(d.get('mFluidBox') or 0)
-                cap = 2400.0 if 'Industrial' in cls else 400.0
+                cap = TANK_M3[cls]
                 inv = [(None, amt)] if amt else []
                 # tank fluid via the pipe network of its connections
                 fl = None
                 for k in ('ConnectionAny0', 'ConnectionAny1', 'PipelineConnection0', 'PipelineConnection1'):
                     nid = S.props(n + '.' + k).get('mPipeNetworkID') if n + '.' + k in S.idx else None
                     if nid is not None:
-                        fl = _pipe_fluid(S).get(nid)
+                        fl = pipe_fluids(S).get(nid)
                         if fl:
                             break
                 items = [dict(item=fl or '?', amount=round(amt, 1))] if amt else []
@@ -524,27 +533,12 @@ def storage(S):
             else:
                 inv = S.inventory((d.get('mStorageInventory') or ['', ''])[1])
                 items = [dict(item=item(i), amount=round(a)) for i, a in sorted(inv, key=lambda x: -x[1])]
-                slots = CAP.get(cls, 48)
-                st = max((ITEMS.get(i.split('.')[-1], {}).get('stackSize', 100) for i, _ in inv), default=100)
+                slots = CONTAINER_SLOTS.get(cls, 48)
+                st = max((gamedata.stack_size(i.split('.')[-1]) for i, _ in inv), default=100)
                 fill = min(1.0, sum(a for _, a in inv) / (slots * st)) if slots and inv else 0.0
             out.append(dict(id=sbp.short(n), cls=cls, pos=[round(p[0] / 100), round(p[1] / 100)], z=round(p[2] / 100),
                             items=items, fill=round(fill, 3) if fill is not None else None))
     return out
-
-
-_PF = {}
-
-
-def _pipe_fluid(S):
-    if id(S) not in _PF:
-        m = {}
-        for n in S.by['FGPipeNetwork']:
-            d = S.props(n)
-            f = (d.get('mFluidDescriptor') or ['', ''])[1]
-            if f and d.get('mPipeNetworkID') is not None:
-                m[d['mPipeNetworkID']] = item(f)
-        _PF.clear(); _PF[id(S)] = m
-    return _PF[id(S)]
 
 
 def sink(S):
@@ -568,7 +562,7 @@ def build_from(S, path=None):
         powerlines=power_lines(S, circ),
         nodes=resource_nodes(S, [m for m in mach if m['cls'] in EXTRACTORS]),
         rails=lines(S, lambda c: c.startswith('Build_RailroadTrack')),
-        pipes=lines(S, lambda c: c.startswith('Build_Pipeline') and 'Support' not in c and 'Junction' not in c and 'Pump' not in c and 'FlowIndicator' not in c),
+        pipes=lines(S, _is_pipe),
         belts=lines(S, lambda c: c.startswith('Build_ConveyorBelt')),
         flow=_flow(S),
         players_known=sorted(set(who.values())),

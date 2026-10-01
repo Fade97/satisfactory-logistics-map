@@ -1,6 +1,7 @@
 """Shared state: pre-rendered API blobs, database, FRM status, log."""
 import datetime, gzip, hashlib, json, os, threading, time
 
+import frm
 import store as storemod
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,7 +19,11 @@ def log(*a):
 
 
 class State:
-    """Everything the API serves — pre-rendered as JSON bytes (gzip), swapped under a lock."""
+    """Everything the API serves — pre-rendered as JSON bytes (gzip), swapped under a lock.
+
+    Units: live data (`live`, FRM) and station data from the save (`stations`) keep game coordinates in cm;
+    factory data (`factory`, `save_factory`: machines, generators, clusters) and `geo` are in metres.
+    """
 
     def __init__(self):
         self.lock = threading.Lock()
@@ -31,33 +36,36 @@ class State:
         self.stations = None                # save: stations, routes
         self.factory = None                 # save or FRM: machines, power …
         self.factory_source = None
+        self.save_factory = None            # last factory read from the save (FRM lacks builder, reason, links, sink)
+        self.unlocked = set()               # recipe classes unlocked in the save (planner)
         self.geo = None                     # network geometry
         self.live = None
         self.prev_live = None
 
     def put(self, name, obj):
         raw = obj if isinstance(obj, (bytes, bytearray)) else json.dumps(obj, ensure_ascii=False, separators=(',', ':')).encode()
-        z = gzip.compress(raw, 5)
+        gz = gzip.compress(raw, 5)
         tag = '"%s"' % hashlib.md5(raw).hexdigest()[:16]
         with self.lock:
-            self.blobs[name] = (tag, z, raw)
+            self.blobs[name] = (tag, gz, raw)
 
     def get(self, name):
         with self.lock:
             return self.blobs.get(name)
 
 
-ST = State()
-DB = storemod.Store()
+ST = State()            # process-wide service state, shared by all loops and the HTTP handler
+DB = storemod.Store()   # process-wide SQLite store (history, events, pins)
 
 
 # ================================================================ FRM status
 def frm_status(ok, err=None):
     if ok != ST.frm_ok or ST.frm_since is None:
+        first = ST.frm_since is None
         ST.frm_since = time.time()
         if ST.frm_ok and not ok:
             DB.event('system', 'warn', 'Live data (FRM) lost — the map continues from the save', ref='frm')
-        elif ok and ST.frm_since and ST.save_meta:
+        elif ok and not first and ST.save_meta:
             DB.event('system', 'info', 'Live data (FRM) is back', ref='frm')
     ST.frm_ok, ST.frm_error = ok, (str(err)[:160] if err else None)
 
@@ -70,7 +78,6 @@ def status_obj():
 
 
 def frm_configured():
-    import frm
     return bool(frm.BASE)
 
 

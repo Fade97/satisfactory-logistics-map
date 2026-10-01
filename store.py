@@ -9,7 +9,7 @@ Series keys, e.g. 'prod:Iron Plate', 'cons:Iron Plate', 'power:229:prod', 'count
 import json, os, sqlite3, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DB = os.environ.get('MAP_DB', os.path.join(os.environ.get('MAP_DATA', os.path.join(HERE, 'data')), 'map.db'))
+DB_PATH = os.environ.get('MAP_DB', os.path.join(os.environ.get('MAP_DATA', os.path.join(HERE, 'data')), 'map.db'))
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS series_min  (key TEXT, t INTEGER, v REAL, PRIMARY KEY (key, t)) WITHOUT ROWID;
@@ -32,10 +32,16 @@ MIN_KEEP = 48 * 3600
 HOUR_KEEP = 90 * 86400
 TRAIL_KEEP = 2 * 3600
 FRAME_KEEP = 24 * 3600          # time travel: per-minute frames of the last 24 h
+EVENT_KEEP = 30 * 86400
+
+# Train transfer series (`train:<station>:<+|->:<item>`) only get a row in minutes with a transfer. When compacting,
+# their value is the mean over the whole hour/day (absent minutes = 0), not over the rows present — otherwise
+# /api/train-flow (SUM(hour) * 60) overstates history older than 48 h.
+TRAIN_LIKE = 'train:%'
 
 
 class Store:
-    def __init__(self, path=DB):
+    def __init__(self, path=DB_PATH):
         os.makedirs(os.path.dirname(path), exist_ok=True)
         self.db = sqlite3.connect(path, check_same_thread=False, isolation_level=None)
         self.db.execute('PRAGMA journal_mode=WAL')
@@ -77,17 +83,17 @@ class Store:
         with self.lock:
             done_h = now // 3600 * 3600                  # completed hours only
             self.db.execute("""INSERT OR REPLACE INTO series_hour
-                SELECT key, t/3600*3600, AVG(v) FROM series_min WHERE t < ? AND t >= ?
-                GROUP BY key, t/3600""", (done_h, done_h - 3 * 3600))
+                SELECT key, t/3600*3600, CASE WHEN key LIKE ? THEN SUM(v) / 60.0 ELSE AVG(v) END
+                FROM series_min WHERE t < ? AND t >= ? GROUP BY key, t/3600""", (TRAIN_LIKE, done_h, done_h - 3 * 3600))
             done_d = now // 86400 * 86400
             self.db.execute("""INSERT OR REPLACE INTO series_day
-                SELECT key, t/86400*86400, AVG(v) FROM series_hour WHERE t < ? AND t >= ?
-                GROUP BY key, t/86400""", (done_d, done_d - 3 * 86400))
+                SELECT key, t/86400*86400, CASE WHEN key LIKE ? THEN SUM(v) / 24.0 ELSE AVG(v) END
+                FROM series_hour WHERE t < ? AND t >= ? GROUP BY key, t/86400""", (TRAIN_LIKE, done_d, done_d - 3 * 86400))
             self.db.execute('DELETE FROM series_min WHERE t < ?', (now - MIN_KEEP,))
             self.db.execute('DELETE FROM series_hour WHERE t < ?', (now - HOUR_KEEP,))
             self.db.execute('DELETE FROM trail WHERE t < ?', (now - TRAIL_KEEP,))
             self.db.execute('DELETE FROM frames WHERE t < ?', (now - FRAME_KEEP,))
-            self.db.execute('DELETE FROM events WHERE t < ?', (now - 30 * 86400,))
+            self.db.execute('DELETE FROM events WHERE t < ?', (now - EVENT_KEEP,))
 
     def series(self, keys, since, until=None):
         """Resolution matching the time span: ≤ 48 h minutes, ≤ 90 d hours, otherwise days."""
@@ -113,6 +119,29 @@ class Store:
                     out.setdefault(key, []).append([t, round(v, 3)])
         return dict(res=tab.split('_')[1], data=out)
 
+    def series_add(self, t, values):
+        """Like put_series, but adds to an existing value of the same minute (counters such as train transfers)."""
+        t = int(t) // 60 * 60
+        with self.lock:
+            self.db.executemany('INSERT INTO series_min VALUES (?,?,?) ON CONFLICT(key, t) DO UPDATE SET v = v + excluded.v',
+                                [(k, t, float(v)) for k, v in values.items()])
+
+    def series_last(self, key, since, limit):
+        """Most recent per-minute values of one key (newest first)."""
+        with self.lock:
+            return [r[0] for r in self.db.execute('SELECT v FROM series_min WHERE key=? AND t>=? ORDER BY t DESC LIMIT ?',
+                                                  (key, since, limit))]
+
+    def train_totals(self, since):
+        """[(key, items moved since `since`)] for the `train:*` series: minutes within 48 h, older hours from series_hour
+        (stored as mean per minute, hence × 60). A key can appear once per tier."""
+        with self.lock:
+            rows = self.db.execute('SELECT key, SUM(v) FROM series_min WHERE key LIKE ? AND t >= ? GROUP BY key',
+                                   (TRAIN_LIKE, since)).fetchall()
+            rows += self.db.execute('SELECT key, SUM(v) * 60 FROM series_hour WHERE key LIKE ? AND t >= ? AND t < ? GROUP BY key',
+                                    (TRAIN_LIKE, since, int(time.time()) - MIN_KEEP)).fetchall()
+        return rows
+
     def series_keys(self, prefix=''):
         with self.lock:
             return [r[0] for r in self.db.execute(
@@ -123,6 +152,16 @@ class Store:
         with self.lock:
             self.db.execute('INSERT INTO events (t, kind, level, text, ref, x, y) VALUES (?,?,?,?,?,?,?)',
                             (int(t or time.time()), kind, level, text, ref, x, y))
+
+    def rewrite_event_texts(self, conv):
+        """Apply conv(text) → text to all stored events; returns the number changed."""
+        n = 0
+        with self.lock:
+            for i, t in self.db.execute('SELECT id, text FROM events').fetchall():
+                e = conv(t or '')
+                if e != t:
+                    self.db.execute('UPDATE events SET text = ? WHERE id = ?', (e, i)); n += 1
+        return n
 
     def events(self, since=0, limit=200):
         with self.lock:

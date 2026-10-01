@@ -10,8 +10,14 @@
 
 import { tr } from './i18n';
 
+type Rate = { item: string; rate: number };
+/** One planner step as far as the layout needs it (PlanStep from the planner satisfies this) */
+export interface LayoutStep { recipe: string; building: string; machines: number; out: Rate[]; inp: Rate[] }
+/** Planner result as far as the layout needs it */
+export interface LayoutInput { raw: Rate[]; surplus_used: Rate[]; steps: LayoutStep[]; targets: Rate[] }
+
 export interface FNode { id: string; kind: 'raw' | 'sur' | 'step' | 'target'; label: string; sub: string; layer: number; order: number;
-  x: number; y: number; data?: any }
+  x: number; y: number; data?: LayoutStep }
 export interface FEdge { id: string; a: FNode; b: FNode; item: string; rate: number; kind: 'raw' | 'sur' | 'mid';
   y1: number; y2: number; w: number; label?: boolean }
 
@@ -19,7 +25,9 @@ export const W = 210, H = 58, GX = 120, GY = 22;
 /** Space for an edge label before the target box (≈ 6 px per char at 11 px font) */
 export const LABEL_CHARS = Math.floor((GX - 14) / 6);
 
-export function layout(res: any, fmt: (n: number) => string) {
+export interface FlowGraph { nodes: FNode[]; edges: FEdge[]; width: number; height: number; ins: Map<FNode, FEdge[]>; outs: Map<FNode, FEdge[]> }
+
+export function layout(res: LayoutInput, fmt: (n: number) => string): FlowGraph {
   const nodes: FNode[] = [];
   const add = (n: Omit<FNode, 'layer' | 'order' | 'x' | 'y'>) => { const f = { ...n, layer: 0, order: 0, x: 0, y: 0 }; nodes.push(f); return f; };
   const prod = new Map<string, { n: FNode; amt: number }[]>();          // item → producers
@@ -28,10 +36,10 @@ export function layout(res: any, fmt: (n: number) => string) {
 
   for (const r of res.raw) addProd(r.item, add({ id: 'raw:' + r.item, kind: 'raw', label: r.item, sub: tr('{rate}/min raw', { rate: fmt(r.rate) }) }), r.rate);
   for (const u of res.surplus_used) addProd(u.item, add({ id: 'sur:' + u.item, kind: 'sur', label: u.item, sub: tr('{rate}/min from surplus', { rate: fmt(u.rate) }) }), u.rate);
-  res.steps.forEach((s: any, i: number) => {
+  res.steps.forEach((s, i) => {
     const n = add({ id: 'step:' + i, kind: 'step', label: s.recipe, sub: `${fmt(s.machines)}× ${s.building}`, data: s });
-    s.out.forEach((o: any) => addProd(o.item, n, o.rate));
-    s.inp.forEach((x: any) => cons.push({ n, item: x.item, amt: x.rate }));
+    s.out.forEach(o => addProd(o.item, n, o.rate));
+    s.inp.forEach(x => cons.push({ n, item: x.item, amt: x.rate }));
   });
   // Target: if exactly one step produces the target item, that step itself becomes the target box —
   // a separate box behind it would just repeat it. Otherwise (several producers, surplus) a separate box.

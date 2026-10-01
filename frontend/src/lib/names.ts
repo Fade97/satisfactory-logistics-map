@@ -25,4 +25,3 @@ function translate(name: string): string {
 }
 /** Both names for search (fuzzy over English and German). */
 export const both = (name: string) => (de[name] ? name + ' ' + de[name] : name);
-export const deName = (name: string) => de[name];

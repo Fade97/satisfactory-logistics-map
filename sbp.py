@@ -1,11 +1,42 @@
-"""Satisfactory .sbp (blueprint) reader/writer, format of 'anniversary-2026' build (UE5.4+ property tags)."""
-import struct, zlib, io, sys
+"""Satisfactory .sbp (blueprint) reader/writer, format of the 'anniversary-2026' build (UE 5.4+ property tags).
 
-MAGIC = b'\xc1\x83\x2a\x9e'
+File: uncompressed header (versions, designer size, cost + recipe lists, opaque tail), then zlib chunks
+(CHUNK_HEADER_SIZE bytes each: magic, version tag, int64 max chunk size, uint8 compressor,
+int64 compressed/uncompressed size twice). The inflated body holds object headers, then object data.
 
-class R:
+Object data = [actor: parent ref + component refs] + uint8 0 + property list + raw trail.
+Property tag (UE 5.4+):
+    string name ('None' ends the list)
+    type tree: string type name, int32 child count, children recursively
+               e.g. StructProperty<Vector</Script/CoreUObject>>, ArrayProperty<ObjectProperty>
+    int32  value size
+    uint8  flags (TAG_*): HAS_INDEX → int32 array index follows, HAS_GUID → 16-byte GUID follows,
+           HAS_EXTENSIONS (unsupported), BINARY = struct serialised natively, BOOL_TRUE = value of a BoolProperty
+    value  (size bytes; BoolProperty has none — its value lives in the flags)
+Arrays of structs are an int32 count + elements without inner tags; Vector/Quat are doubles.
+Strings: int32 length incl. terminator; negative = UTF-16 code units.
+"""
+import math, struct, zlib, io, sys
+
+MAGIC = b'\xc1\x83\x2a\x9e'            # chunk magic (UE package file tag)
+CHUNK_VERSION = 0x22222222             # second header word ("v2" marker)
+CHUNK_HEADER_SIZE = 49                 # magic, version, int64 max size, uint8 compressor, 4 × int64 sizes
+CHUNK_SIZES_AT = 17                    # offset of the first int64 compressed size inside the header
+COMPRESSOR_ZLIB = 3
+MAX_CHUNK = 131072
+
+# property tag flags (UE EPropertyTagFlags)
+TAG_HAS_INDEX = 0x01
+TAG_HAS_GUID = 0x02
+TAG_HAS_EXTENSIONS = 0x04
+TAG_BINARY = 0x08                      # HasBinaryOrNativeSerialize: set on native structs (Vector, PlayerInfoHandle …)
+TAG_BOOL_TRUE = 0x10
+
+
+class Reader:
     def __init__(self, b, pos=0): self.b=b; self.p=pos
     def u8(self): v=self.b[self.p]; self.p+=1; return v
+    def i8(self): v,=struct.unpack_from('<b',self.b,self.p); self.p+=1; return v
     def i32(self): v,=struct.unpack_from('<i',self.b,self.p); self.p+=4; return v
     def u32(self): v,=struct.unpack_from('<I',self.b,self.p); self.p+=4; return v
     def i64(self): v,=struct.unpack_from('<q',self.b,self.p); self.p+=8; return v
@@ -20,9 +51,10 @@ class R:
         return self.raw(n)[:-1].decode('utf-8')
     def eof(self): return self.p>=len(self.b)
 
-class W:
+class Writer:
     def __init__(self): self.o=io.BytesIO()
     def u8(self,v): self.o.write(struct.pack('<B',v))
+    def i8(self,v): self.o.write(struct.pack('<b',v))
     def i32(self,v): self.o.write(struct.pack('<i',v))
     def u32(self,v): self.o.write(struct.pack('<I',v))
     def i64(self,v): self.o.write(struct.pack('<q',v))
@@ -34,35 +66,48 @@ class W:
         try:
             b=v.encode('ascii'); self.i32(len(b)+1); self.raw(b+b'\0')
         except UnicodeEncodeError:
-            b=v.encode('utf-16-le'); self.i32(-(len(v)+1)); self.raw(b+b'\0\0')
+            b=v.encode('utf-16-le'); self.i32(-(len(b)//2+1)); self.raw(b+b'\0\0')   # length in UTF-16 code units
     def bytes(self): return self.o.getvalue()
 
+R, W = Reader, Writer                  # old names
+
+
+def quat_yaw_rad(q):
+    """Yaw (rotation about z) in radians of an (x, y, z, w) quaternion."""
+    qx, qy, qz, qw = q
+    return math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz))
+
+def yaw_from_quat(q): return math.degrees(quat_yaw_rad(q))
+
 # ---------- file level ----------
+def read_chunks(d, i):
+    """Inflate the zlib chunks of d starting at offset i (first chunk magic) into one body."""
+    parts=[]
+    while i<len(d):
+        assert d[i:i+4]==MAGIC, 'chunk magic expected at %d' % i
+        cs,_=struct.unpack_from('<qq',d,i+CHUNK_SIZES_AT)
+        start=i+CHUNK_HEADER_SIZE
+        parts.append(zlib.decompress(d[start:start+cs]))
+        i=start+cs
+    return b''.join(parts)   # join instead of +=: += copies the whole buffer per chunk
+
 def read_file(path):
     d=open(path,'rb').read()
     i=d.find(MAGIC)
-    header=d[:i]
-    body=b''
-    while i<len(d):
-        assert d[i:i+4]==MAGIC
-        cs,us=struct.unpack_from('<qq',d,i+17)
-        start=i+49
-        body+=zlib.decompress(d[start:start+cs])
-        i=start+cs
-    return header, body
+    return d[:i], read_chunks(d,i)
 
-def write_file(path, header, body, maxchunk=131072):
+def write_file(path, header, body, maxchunk=MAX_CHUNK):
     out=bytearray(header)
     for off in range(0,len(body),maxchunk):
         chunk=body[off:off+maxchunk]
         comp=zlib.compress(chunk,6)
-        out+=MAGIC+struct.pack('<I',0x22222222)+struct.pack('<q',maxchunk)+b'\x03'
+        out+=MAGIC+struct.pack('<I',CHUNK_VERSION)+struct.pack('<q',maxchunk)+bytes([COMPRESSOR_ZLIB])
         out+=struct.pack('<qqqq',len(comp),len(chunk),len(comp),len(chunk))
         out+=comp
     open(path,'wb').write(bytes(out))
 
 def parse_header(h):
-    r=R(h)
+    r=Reader(h)
     hv=r.i32(); sv=r.i32(); bv=r.i32()
     dims=[r.i32(),r.i32(),r.i32()]
     n=r.i32(); cost=[]
@@ -75,7 +120,7 @@ def parse_header(h):
     return dict(hv=hv,sv=sv,bv=bv,dims=dims,cost=cost,recipes=recipes,tail=tail)
 
 def build_header(H):
-    w=W(); w.i32(H['hv']); w.i32(H['sv']); w.i32(H['bv'])
+    w=Writer(); w.i32(H['hv']); w.i32(H['sv']); w.i32(H['bv'])
     for d in H['dims']: w.i32(d)
     w.i32(len(H['cost']))
     for lvl,p,amt in H['cost']: w.s(lvl); w.s(p); w.i32(amt)
@@ -85,41 +130,42 @@ def build_header(H):
     return w.bytes()
 
 # ---------- body ----------
+def read_object_header(r):
+    """Object header: type (1 = actor with transform, 0 = component/object), class, level, name, …"""
+    t=r.i32(); h=dict(type=t, cls=r.s(), root=r.s(), name=r.s())
+    if t==1:
+        h['flags']=r.i32(); h['needTransform']=r.i32()
+        h['rot']=[r.f32() for _ in range(4)]; h['pos']=[r.f32() for _ in range(3)]; h['scale']=[r.f32() for _ in range(3)]
+        h['placed']=r.i32()
+    else:
+        h['flags']=r.i32(); h['outer']=r.s()
+    return h
+
+def write_object_header(w,h):
+    w.i32(h['type']); w.s(h['cls']); w.s(h['root']); w.s(h['name'])
+    if h['type']==1:
+        w.i32(h['flags']); w.i32(h['needTransform'])
+        for v in h['rot']: w.f32(v)
+        for v in h['pos']: w.f32(v)
+        for v in h['scale']: w.f32(v)
+        w.i32(h['placed'])
+    else:
+        w.i32(h['flags']); w.s(h['outer'])
+
 def parse_body(b):
-    r=R(b)
-    total=r.i32(); hdrsize=r.i32(); n=r.i32()
-    headers=[]
-    for _ in range(n):
-        t=r.i32(); h=dict(type=t, cls=r.s(), root=r.s(), name=r.s())
-        if t==1:
-            h['flags']=r.i32(); h['needTransform']=r.i32()
-            h['rot']=[r.f32() for _ in range(4)]; h['pos']=[r.f32() for _ in range(3)]; h['scale']=[r.f32() for _ in range(3)]
-            h['placed']=r.i32()
-        else:
-            h['flags']=r.i32(); h['outer']=r.s()
-        headers.append(h)
-    objsize=r.i32(); n2=r.i32()
-    objs=[]
-    for _ in range(n2):
-        size=r.i32()
-        objs.append(dict(data=r.raw(size)))
-    rest=b[r.p:]
-    return dict(headers=headers,objs=objs,rest=rest)
+    """int32 total, int32 header bytes, int32 n, n headers, int32 object bytes, int32 n, n × (int32 size, data), rest"""
+    r=Reader(b)
+    r.i32(); r.i32()                      # total size, header section size (recomputed on write)
+    headers=[read_object_header(r) for _ in range(r.i32())]
+    r.i32()                               # object section size
+    objs=[dict(data=r.raw(r.i32())) for _ in range(r.i32())]
+    return dict(headers=headers,objs=objs,rest=b[r.p:])
 
 def build_body(B):
-    hw=W(); hw.i32(len(B['headers']))
-    for h in B['headers']:
-        hw.i32(h['type']); hw.s(h['cls']); hw.s(h['root']); hw.s(h['name'])
-        if h['type']==1:
-            hw.i32(h['flags']); hw.i32(h['needTransform'])
-            for v in h['rot']: hw.f32(v)
-            for v in h['pos']: hw.f32(v)
-            for v in h['scale']: hw.f32(v)
-            hw.i32(h['placed'])
-        else:
-            hw.i32(h['flags']); hw.s(h['outer'])
+    hw=Writer(); hw.i32(len(B['headers']))
+    for h in B['headers']: write_object_header(hw,h)
     hb=hw.bytes()
-    ow=W(); ow.i32(len(B['objs']))
+    ow=Writer(); ow.i32(len(B['objs']))
     for o in B['objs']:
         ow.i32(len(o['data'])); ow.raw(o['data'])
     ob=ow.bytes()
@@ -128,7 +174,7 @@ def build_body(B):
 
 # ---------- object data (properties) ----------
 def parse_object(data, is_actor):
-    r=R(data)
+    r=Reader(data)
     o={}
     if is_actor:
         o['parent']=[r.s(),r.s()]
@@ -139,7 +185,7 @@ def parse_object(data, is_actor):
     return o
 
 def build_object(o, is_actor):
-    w=W()
+    w=Writer()
     if is_actor:
         w.s(o['parent'][0]); w.s(o['parent'][1])
         w.i32(len(o['components']))
@@ -162,15 +208,15 @@ def read_tag(r):
     name=r.s()
     if name=='None': return None
     t=dict(name=name, type=read_type(r), size=r.i32(), flags=r.u8())
-    if t['flags']&1: t['index']=r.i32()
-    if t['flags']&2: t['pguid']=r.raw(16)
-    assert not (t['flags']&4), 'property extensions unsupported'
+    if t['flags']&TAG_HAS_INDEX: t['index']=r.i32()
+    if t['flags']&TAG_HAS_GUID: t['pguid']=r.raw(16)
+    assert not (t['flags']&TAG_HAS_EXTENSIONS), 'property extensions unsupported'
     return t
 
 def write_tag(w,t,size):
     w.s(t['name']); write_type(w,t['type']); w.i32(size); w.u8(t['flags'])
-    if t['flags']&1: w.i32(t['index'])
-    if t['flags']&2: w.raw(t['pguid'])
+    if t['flags']&TAG_HAS_INDEX: w.i32(t['index'])
+    if t['flags']&TAG_HAS_GUID: w.raw(t['pguid'])
 
 def parse_props(r):
     props=[]
@@ -187,9 +233,9 @@ BIN_STRUCTS={'Vector','Rotator','Quat','LinearColor','Color','Box','Vector2D','I
 
 def parse_value(r,typ,size,tag=None):
     tn=typ[0]
-    if tn=='BoolProperty': return bool(tag['flags']&16) if tag else r.u8()
+    if tn=='BoolProperty': return bool(tag['flags']&TAG_BOOL_TRUE) if tag else r.u8()
     if tn=='IntProperty': return r.i32()
-    if tn=='Int8Property': return r.u8()
+    if tn=='Int8Property': return r.i8()
     if tn=='Int64Property': return r.i64()
     if tn=='UInt32Property': return r.u32()
     if tn=='FloatProperty': return r.f32()
@@ -258,7 +304,7 @@ def write_value(w,typ,v):
     tn=typ[0]
     if tn=='BoolProperty': return
     if tn=='IntProperty': w.i32(v)
-    elif tn=='Int8Property': w.u8(v)
+    elif tn=='Int8Property': w.i8(v)
     elif tn=='Int64Property': w.i64(v)
     elif tn=='UInt32Property': w.u32(v)
     elif tn=='FloatProperty': w.f32(v)
@@ -281,12 +327,35 @@ def write_value(w,typ,v):
 
 def write_props(w,props):
     for t in props:
-        vw=W(); write_value(vw,t['type'],t['value']); vb=vw.bytes()
+        vw=Writer(); write_value(vw,t['type'],t['value']); vb=vw.bytes()
         if t['type'][0]=='BoolProperty':
-            t['flags']=(t['flags']&~16)|(16 if t['value'] else 0)
+            t['flags']=(t['flags']&~TAG_BOOL_TRUE)|(TAG_BOOL_TRUE if t['value'] else 0)
         write_tag(w,t,len(vb)); w.raw(vb)
     w.s('None')
 
+# ---------- property builders (for generated blueprints) ----------
+def T(name, *children): return [name, list(children)]
+def P_obj(name, ref): return dict(name=name, type=T('ObjectProperty'), flags=0, value=list(ref))
+def P_objarr(name, refs): return dict(name=name, type=T('ArrayProperty', T('ObjectProperty')), flags=0, value=[list(r) for r in refs])
+def P_float(name, v): return dict(name=name, type=T('FloatProperty'), flags=0, value=float(v))
+def P_int(name, v): return dict(name=name, type=T('IntProperty'), flags=0, value=int(v))
+def P_bool(name, v): return dict(name=name, type=T('BoolProperty'), flags=TAG_BOOL_TRUE if v else 0, value=bool(v))
+def P_byte(name, v): return dict(name=name, type=T('ByteProperty'), flags=0, value=int(v))
+def P_struct(name, sname, pkg, props, flags=0): return dict(name=name, type=T('StructProperty', T(sname, T(pkg))), flags=flags, value=props)
+def P_vec(name, v): return P_struct(name, 'Vector', '/Script/CoreUObject', [float(x) for x in v], flags=TAG_BINARY)
+
+def write_cfg(path, text, src):
+    """Write a blueprint description (.sbpcfg) modelled on an existing one (keeps icon, colour, icon library).
+
+    Layout: int32 version, string description, int32 icon ID, LinearColor f32[4], rest copied as is.
+    """
+    tpl = open(src, 'rb').read()
+    r = Reader(tpl); ver = r.i32(); r.s(); icon = r.i32(); color = [r.f32() for _ in range(4)]; rest = tpl[r.p:]
+    w = Writer(); w.i32(ver); w.s(text); w.i32(icon)
+    for c in color: w.f32(c)
+    w.raw(rest); open(path, 'wb').write(w.bytes())
+
+# ---------- whole file ----------
 def load(path):
     header,body=read_file(path)
     H=parse_header(header); B=parse_body(body)
@@ -328,20 +397,23 @@ def dump(path, full=False):
 def typestr(t):
     return t[0]+('<'+','.join(typestr(c) for c in t[1])+'>' if t[1] else '')
 
+def roundtrip(path):
+    """Byte-exact round trip check of one .sbp: (header ok, body ok, [object problems])."""
+    header,body=read_file(path)
+    H=parse_header(header); B=parse_body(body)
+    bad=[]
+    for h,o in zip(B['headers'],B['objs']):
+        try:
+            if build_object(parse_object(o['data'],h['type']==1),h['type']==1)!=o['data']: bad.append(('MISMATCH',h['cls'],h['name']))
+        except Exception as e:
+            bad.append(('ERR',short(h['cls']),short(h['name']),repr(e)))
+    return build_header(H)==header, build_body(B)==body, bad, B
+
 if __name__=='__main__':
     import glob,os
     if sys.argv[1]=='dump':
         dump(sys.argv[2], full=len(sys.argv)>3); sys.exit()
     for f in sorted(glob.glob(sys.argv[1]+'/*.sbp')):
-        header,body=read_file(f)
-        H=parse_header(header); B=parse_body(body)
-        ok_h=build_header(H)==header
-        ok_b=build_body(B)==body
-        ok_o=True
-        for h,o in zip(B['headers'],B['objs']):
-            try:
-                ob=parse_object(o['data'],h['type']==1)
-                if build_object(ob,h['type']==1)!=o['data']: ok_o=False; print('  MISMATCH',h['cls'],h['name'])
-            except Exception as e:
-                ok_o=False; print('  ERR',short(h['cls']),short(h['name']),repr(e))
-        print(os.path.basename(f), 'hdr',ok_h,'body',ok_b,'objs',ok_o, 'n=',len(B['headers']), 'rest=',len(B['rest']))
+        ok_h,ok_b,bad,B=roundtrip(f)
+        for b in bad: print(' ',*b)
+        print(os.path.basename(f), 'hdr',ok_h,'body',ok_b,'objs',not bad, 'n=',len(B['headers']), 'rest=',len(B['rest']))

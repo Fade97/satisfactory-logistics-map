@@ -3,6 +3,7 @@
   import { go } from './router';
   import { clock } from './fmt';
   import { t, tr, lx, locale } from './i18n';
+  import type { GameEvent } from './types';
 
   let { onclose = () => {}, compact = false }: { onclose?: () => void; compact?: boolean } = $props();
   const KINDS: Record<string, string> = {
@@ -21,7 +22,7 @@
     const d = new Date(t * 1000), now = new Date();
     return d.toDateString() === now.toDateString() ? tr('Today') : d.toLocaleDateString(locale(), { weekday: 'long', day: 'numeric', month: 'numeric' });
   }
-  function open(e: any) {
+  function open(e: GameEvent) {
     if (e.x === null) return;
     const sel = e.ref?.startsWith('player:') ? e.ref : '';
     go('map', { x: Math.round(e.x), y: Math.round(e.y), z: 1.6, ...(sel ? { sel } : {}) });

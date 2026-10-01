@@ -6,13 +6,20 @@ Conventions:
     track A (y=+800, runs -x) -> right-hand traffic. Hypertube in the middle (y=0) at 1.75 m.
   - Track objects are always a single Hermite segment (2 points). TrackConnection0 = start, 1 = end.
   - Signals/switches are derived automatically from nodes (coinciding track ends).
-"""
-import math, copy, os, sys
-import sbp
 
-SRC = os.environ.get('BP_SRC', 'extracted/blueprints')  # folder with your own blueprints used as templates (needs TEMPLATE)
+    python3 tools/railset_gen.py        # BP_SRC = folder with TEMPLATE, BP_OUT = output folder
+"""
+import math, os, sys
+
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+import sbp  # noqa: E402
+from sbp import T, P_obj, P_objarr, P_float, P_int, P_bool, P_byte, P_struct, P_vec  # noqa: E402,F401
+
+# folder with your own blueprints used as templates (needs TEMPLATE); relative paths = relative to the repo root
+SRC = os.path.join(ROOT, os.environ.get('BP_SRC', 'extracted/blueprints'))
 TEMPLATE = 'Asphalt + Schiene - Gerade'   # name of the player's own in-game blueprint used as header/.sbpcfg template
-OUT = "blueprints/rail-set"
+OUT = os.path.join(ROOT, os.environ.get('BP_OUT', 'blueprints/rail-set'))
 LVL = "Persistent_Level"
 PL = "Persistent_Level:PersistentLevel."
 BOX = 2000.0
@@ -91,22 +98,13 @@ COST = {   # per object: {part: amount}; track/tube are computed from their leng
     'itrack': {},
 }
 
-# ---------------- property helpers ----------------
-def T(name, *children): return [name, list(children)]
-def P_obj(name, ref): return dict(name=name, type=T('ObjectProperty'), flags=0, value=list(ref))
-def P_objarr(name, refs): return dict(name=name, type=T('ArrayProperty', T('ObjectProperty')), flags=0, value=[list(r) for r in refs])
-def P_float(name, v): return dict(name=name, type=T('FloatProperty'), flags=0, value=float(v))
-def P_int(name, v): return dict(name=name, type=T('IntProperty'), flags=0, value=int(v))
-def P_bool(name, v): return dict(name=name, type=T('BoolProperty'), flags=16 if v else 0, value=bool(v))
-def P_byte(name, v): return dict(name=name, type=T('ByteProperty'), flags=0, value=int(v))
-def P_struct(name, sname, pkg, props, flags=0): return dict(name=name, type=T('StructProperty', T(sname, T(pkg))), flags=flags, value=props)
-def P_vec(name, v): return P_struct(name, 'Vector', '/Script/CoreUObject', [float(x) for x in v], flags=8)
+# ---------------- property helpers (generic ones live in sbp) ----------------
 def P_splinedata(pts):
     """pts: list of (loc, arrive, leave)"""
     return dict(name='mSplineData', type=T('ArrayProperty', T('StructProperty', T('SplinePointData', T('/Script/Engine')))), flags=0,
                 value=[[P_vec('Location', l), P_vec('ArriveTangent', a), P_vec('LeaveTangent', b)] for l, a, b in pts])
 def generic_props(recipe, swatch, colorslot):
-    return [dict(name='BuiltBy', type=T('StructProperty', T('PlayerInfoHandle', T('/Script/FactoryGame'))), flags=8, value=b'\x06\x00\x00\x00\x00'),
+    return [dict(name='BuiltBy', type=T('StructProperty', T('PlayerInfoHandle', T('/Script/FactoryGame'))), flags=sbp.TAG_BINARY, value=b'\x06\x00\x00\x00\x00'),
             P_byte('mColorSlot', colorslot),
             P_struct('mCustomizationData', 'FactoryCustomizationData', '/Script/FactoryGame', [P_obj('SwatchDesc', ['', swatch])]),
             P_obj('mBuiltWithRecipe', ['', recipe])]
@@ -194,7 +192,6 @@ class Piece:
         for p, q in zip(xa, xa[1:]): self.segs.append(straight([p, A_Y, TOP_Z], [q, A_Y, TOP_Z]))
         for x in frange(x0 + 400, x1, 800):
             for y in (-800, 0, 800): self.founds.append((x, y))
-        pass
     def tube_x(self, x0, x1, y=TUBE_Y): self.segs.append(straight([x0, y, TUBE_Z], [x1, y, TUBE_Z], 'tube', tmag=abs(x1 - x0) / 2))
     def tube_y(self, y0, y1, x=TUBE_Y): self.segs.append(straight([x, y0, TUBE_Z], [x, y1, TUBE_Z], 'tube', tmag=abs(y1 - y0) / 2))
     def railings_x(self, x0, x1, y, facing):
@@ -228,9 +225,26 @@ class Builder:
 
 def ref(name): return [LVL, PL + name]
 
+class Box:
+    """One 40 m designer box of a piece: centre (cx, cy); objects are stored relative to it (off)."""
+    def __init__(self, cx, cy): self.cx, self.cy, self.off = cx, cy, [cx, cy, 0.0]
+    def inside(self, x, y): return (self.cx - BOX - 1 <= x <= self.cx + BOX + 1) and (self.cy - BOX - 1 <= y <= self.cy + BOX + 1)
+
 def build_box(piece, cx, cy, suffix, H_tpl):
-    b = Builder(); off = [cx, cy, 0.0]
-    inside = lambda x, y: (cx - BOX - 1 <= x <= cx + BOX + 1) and (cy - BOX - 1 <= y <= cy + BOX + 1)
+    """Cut one box out of the piece and write it as .sbp/.sbpcfg. The order of the steps fixes the object IDs."""
+    b = Builder(); box = Box(cx, cy)
+    segs = _clip(piece, box)
+    tracks, names, nodes = _place_tracks(b, box, segs)
+    _place_signals(b, box, piece, nodes)
+    _place_platforms(b, box, piece, tracks, names)
+    _place_tubes(b, box, segs)
+    _place_supports_foundations_railings(b, box, piece)
+    _place_beams(b, box, piece)
+    _place_lamps(b, box, piece)
+    return _write_box(b, piece, suffix, H_tpl)
+
+def _clip(piece, box):
+    cx, cy, inside = box.cx, box.cy, box.inside
     # --- cut segments at the box edges, keep only the inner ones
     segs = list(piece.segs)
     for axis, vals in ((0, (cx - BOX, cx + BOX)), (1, (cy - BOX, cy + BOX))):
@@ -241,6 +255,11 @@ def build_box(piece, cx, cy, suffix, H_tpl):
                 out.extend(r if r else [s])
             segs = out
     segs = [s for s in segs if inside(*s.point(0.5)[:2])]
+    return segs
+
+def _place_tracks(b, box, segs):
+    """Track objects, then nodes (coinciding ends): connections and switches."""
+    cx, cy, off = box.cx, box.cy, box.off
     # --- tracks -> objects, collect ends
     ends = []   # (node_key, compref, outward_dir, segindex)
     tracks = [s for s in segs if s.kind in ('track', 'itrack')]
@@ -283,12 +302,13 @@ def build_box(piece, cx, cy, suffix, H_tpl):
             b.actor(C['switch'], name, sub(trunk[3].P1 if trunk[1].endswith('1') else trunk[3].P0, off), quat_yaw(yaw), props, [])
             b.addcost('switch')
         elif len(es) > 3: raise Exception('node with >3 track ends at ' + str(k))
-    for co in b.comp_objs:
-        # get the component name from the header
-        pass
     for h, o in zip(b.comp_headers, b.comp_objs):
         cn = h['name'][len(PL):]
         if cn in conn and conn[cn]: o['obj']['props'] = [P_objarr('mConnectedComponents', [ref(x) for x in conn[cn]])]
+    return tracks, names, nodes
+
+def _place_signals(b, box, piece, nodes):
+    off, inside = box.off, box.inside
     # --- signals
     for x, y, travel, kind in piece.signals:
         if not inside(x, y): continue
@@ -301,6 +321,9 @@ def build_box(piece, cx, cy, suffix, H_tpl):
                  P_bool('mIsBiDirectional', True)] + generic_props(RECIPE['bsig' if kind == 'block' else 'psig'], SWATCH_SLOT2, 2)
         b.actor(C['bsig' if kind == 'block' else 'psig'], name, sub([x, y, TOP_Z], off), quat_yaw(math.degrees(math.atan2(travel[1], travel[0]))), props, [])
         b.addcost('bsig' if kind == 'block' else 'psig')
+
+def _place_platforms(b, box, piece, tracks, names):
+    off, inside = box.off, box.inside
     # --- platforms (station / freight platform): objects + platform connections
     plat_ends = {}   # node_key -> (platname, 'PlatformConnection0/1')
     for x, y, yaw, kind, seg in piece.platforms:
@@ -338,6 +361,9 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         if len(es) == 2:
             es[0][2].append(P_obj('mConnectedTo', ref(es[1][0] + '.' + es[1][1])))
             es[1][2].append(P_obj('mConnectedTo', ref(es[0][0] + '.' + es[0][1])))
+
+def _place_tubes(b, box, segs):
+    off = box.off
     # --- hypertube: chain connected segments into one multi-point spline
     tubes = [s for s in segs if s.kind == 'tube']
     chains = []
@@ -363,6 +389,9 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         L = sum(math.dist(s.P0, s.P1) for s in ch) / 100; n = max(1, round(L / 2))
         b.cost['CopperSheet'] = b.cost.get('CopperSheet', 0) + n; b.cost['SteelPipe'] = b.cost.get('SteelPipe', 0) + n
         b.addcost('tube')
+
+def _place_supports_foundations_railings(b, box, piece):
+    off, inside = box.off, box.inside
     # --- supports, foundations, railings
     for x, y, h, yaw in piece.supports:
         if not inside(x, y): continue
@@ -379,6 +408,9 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         b.actor(C['railing'], 'Build_Railing_01_C_' + str(b.nid()), sub([x, y, TOP_Z], off), quat_yaw(yaw),
                 generic_props(RECIPE['railing'], SWATCH_SLOT2, 2), [])
         b.addcost('railing')
+
+def _place_beams(b, box, piece):
+    cx, cy, off, inside = box.cx, box.cy, box.off, box.inside
     # --- H-beams on the outer edges (origin at the start, runs in yaw direction)
     for x0, y0, x1, y1 in piece.beams:
         # clip to the box edges
@@ -390,6 +422,9 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         b.actor(C['beam'], 'Build_Beam_H_C_' + str(b.nid()), sub(p0, off), quat_yaw(0 if ax == 0 else 90),
                 [P_float('mLength', bb - a)] + generic_props(RECIPE['beam'], SWATCH_SLOT2, 2), [])
         b.cost['SteelPlate'] = b.cost.get('SteelPlate', 0) + max(1, round((bb - a) / 400)); b.addcost('beam')
+
+def _place_lamps(b, box, piece):
+    off, inside = box.off, box.inside
     # --- pair of street lights + cable (modelled on the straight piece adjusted in the game)
     for x, y, yaw in piece.lamps:
         if not inside(x, y): continue
@@ -409,14 +444,16 @@ def build_box(piece, cx, cy, suffix, H_tpl):
         locs = [v(v(pos, mul([nx, ny, 0], -side * 126.7)), [0, 0, 949.4]) for side, (nm, pos) in zip((-1, 1), names)]
         mid = mul(v(locs[0], locs[1]), 0.5)
         wire_props = [dict(name='mWireInstances', type=T('ArrayProperty', T('StructProperty', T('WireInstance', T('/Script/FactoryGame')))), flags=0,
-                           value=[[dict(name='Locations', type=T('StructProperty', T('Vector', T('/Script/CoreUObject'))), flags=8, value=sub(locs[0], off)),
-                                   dict(name='Locations', type=T('StructProperty', T('Vector', T('/Script/CoreUObject'))), flags=9, index=1, value=sub(locs[1], off))]]),
+                           value=[[dict(name='Locations', type=T('StructProperty', T('Vector', T('/Script/CoreUObject'))), flags=sbp.TAG_BINARY, value=sub(locs[0], off)),
+                                   dict(name='Locations', type=T('StructProperty', T('Vector', T('/Script/CoreUObject'))), flags=sbp.TAG_BINARY | sbp.TAG_HAS_INDEX, index=1, value=sub(locs[1], off))]]),
                       P_float('mCachedLength', math.dist(locs[0], locs[1]))] + generic_props(RECIPE['wire'], SWATCH_SLOT2, 2)
-        w = sbp.W(); w.raw(b'\x00\x00\x00\x00')
+        w = sbp.Writer(); w.raw(b'\x00\x00\x00\x00')
         for nm, pos in names: w.s(LVL); w.s(PL + nm + '.FGPowerConnection')
         b.actor(C['wire'], wn, sub(mid, off), quat_yaw(yaw + 90), wire_props, [])
         b.objs[-1]['obj']['trail'] = w.bytes()
         b.addcost('wire')
+
+def _write_box(b, piece, suffix, H_tpl):
     # --- header + files
     cost = [['', desc(k), a] for k, a in b.cost.items() if a > 0]
     H = dict(hv=H_tpl['hv'], sv=H_tpl['sv'], bv=H_tpl['bv'], dims=[5, 5, 5], cost=cost, recipes=[['', r] for r in b.recipes], tail=H_tpl['tail'])
@@ -426,20 +463,12 @@ def build_box(piece, cx, cy, suffix, H_tpl):
     write_cfg(f'{OUT}/{fname}.sbpcfg', piece.desc)
     return fname, len(b.headers), b.cost
 
+
 def key(p): return (round(p[0]), round(p[1]))
 
-CFG_SRC = None
 def write_cfg(path, text, src=None):
-    """Write a description (.sbpcfg) modelled on an existing file (keeps icon/colour) — default: the rail template."""
-    global CFG_SRC
-    if src: tpl = open(src, 'rb').read()
-    else:
-        if CFG_SRC is None: CFG_SRC = open(f'{SRC}/{TEMPLATE}.sbpcfg', 'rb').read()
-        tpl = CFG_SRC
-    r = sbp.R(tpl); ver = r.i32(); r.s(); icon = r.i32(); color = [r.f32() for _ in range(4)]; rest = tpl[r.p:]
-    w = sbp.W(); w.i32(ver); w.s(text); w.i32(icon)
-    for c in color: w.f32(c)
-    w.raw(rest); open(path, 'wb').write(w.bytes())
+    """Write a description (.sbpcfg) modelled on an existing file — default: the rail template."""
+    sbp.write_cfg(path, text, src or f'{SRC}/{TEMPLATE}.sbpcfg')
 
 # ---------------- pieces ----------------
 def corridor_deco(p, x0, x1):

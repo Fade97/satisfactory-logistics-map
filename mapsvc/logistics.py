@@ -1,17 +1,24 @@
 """Logistics: fill levels, train throughput and round times, schedule check."""
 import collections, math, time
 
+from gamedata import ITEMS
 from .core import ST, DB, paused
 
 
-STACK = {v['name']: (v['stackSize'], v['liquid']) for v in __import__('factory').ITEMS.values()}
+STACK = {v['name']: (v['stackSize'], v['liquid']) for v in ITEMS.values()}     # item name → (stack size, fluid?)
+DEFAULT_STACK = (100, False)
 VEH_SLOTS = {'Truck': 48, 'Tractor': 25, 'Explorer': 24}     # keys = vehicle type values from stations.py/frm.py
+TRUCK_SLOTS = 48                    # truck station (and default vehicle)
+PLATFORM_SLOTS, FLUID_PLATFORM = 32, 2400      # freight platform / fluid platform (m³)
+WAGON_SLOTS, FLUID_WAGON = 32, 1600            # freight wagon / fluid wagon (m³)
+DEMAND_RADIUS = 250.0               # m around the unloading stations
+ROUND_MIN, ROUND_MAX = 60, 4 * 3600             # s: plausible train round times
 
 
 def fill_levels(data):
     """Fill level per station (0..1) and theoretical throughput per truck vehicle.
 
-    Truck station 48 slots, freight platform 32 slots, fluid platform 2400 m³ (wiki values).
+    Truck station 48 slots, freight platform 32 slots, fluid platform 2400 m³ (wiki values, constants above).
     Throughput = full load ÷ round time — an upper bound, since how full a vehicle actually
     travels is not in the save.
     """
@@ -19,25 +26,28 @@ def fill_levels(data):
         if not items:
             return None
         it = items[0]['item']
-        st, liq = STACK.get(it, (100, False))
+        st, liq = STACK.get(it, DEFAULT_STACK)
         c = fluid_cap if liq else slots * st
         return round(min(1.0, sum(i['amount'] for i in items) / c), 3) if c else None
     for s in data['trucks']:
-        s['fill'] = cap(s['items'], 48, 0)
+        s['fill'] = cap(s['items'], TRUCK_SLOTS, 0)
         it = s['items'][0]['item'] if s['items'] else None
-        st, liq = STACK.get(it, (100, False)) if it else (0, False)
+        st, liq = STACK.get(it, DEFAULT_STACK) if it else (0, False)
         for v in s.get('vehicles', []):
-            load = VEH_SLOTS.get(v['type'], 48) * st
+            load = VEH_SLOTS.get(v['type'], TRUCK_SLOTS) * st
             v['per_min'] = round(load / (v['round'] / 60), 1) if v['round'] > 30 and load else None
     for s in data['trains']:
         for p in s['platforms']:
-            p['fill'] = cap(p['items'], 32, 2400) if p['type'] != 'empty' else None
+            p['fill'] = cap(p['items'], PLATFORM_SLOTS, FLUID_PLATFORM) if p['type'] != 'empty' else None
+
+
+def wagon_cap(item):
+    st, liq = STACK.get(item, DEFAULT_STACK)
+    return FLUID_WAGON if liq else WAGON_SLOTS * st
 
 
 # ---------------------------------------------------------------- train throughput
-_cargo_prev = {}
-
-
+_cargo_prev = {}           # train → (cargo, station, docked) at the previous poll
 _round_start = {}          # train → (round start time, 'docked' | 'away')
 
 
@@ -51,7 +61,7 @@ def train_rounds(live):
         prev = _round_start.get(t['name'])
         if prev and prev[1] == 'away':                   # left in between → round complete
             dt = now - prev[0]
-            if 60 < dt < 4 * 3600:
+            if ROUND_MIN < dt < ROUND_MAX:
                 DB.put_series(now, {'round:' + t['name']: dt})
         if not prev or prev[1] == 'away':
             _round_start[t['name']] = (now, 'docked')
@@ -82,10 +92,7 @@ def train_transfers(live):
             if abs(d) >= 1:
                 add['train:%s:%s:%s' % (st, '+' if d > 0 else '-', it)] += abs(d)
     if add:
-        t = now // 60 * 60
-        with DB.lock:
-            for k, v in add.items():   # accumulate within the minute
-                DB.db.execute('INSERT INTO series_min VALUES (?,?,?) ON CONFLICT(key, t) DO UPDATE SET v = v + excluded.v', (k, t, v))
+        DB.series_add(now, add)                           # accumulate within the minute
 
 
 # ---------------------------------------------------------------- schedule check
@@ -93,16 +100,14 @@ def schedule_check():
     """Per train and truck route: capacity (load per round ÷ round time) against the factory's demand for the item.
 
     Train: round time measured (median of the last rounds, otherwise unknown), load = wagons × 32 stacks or 1600 m³.
-    Truck: round time from the save (AverageTimeBetweenDocks), load = 48 stacks (tractor 25).
+    Truck: round time from the save (AverageTimeBetweenDocks), load = VEH_SLOTS stacks (truck 48, tractor 25, explorer 24).
     Demand = consumption of the item in the item balance; utilisation = measured throughput ÷ capacity, where available.
     """
-    import factory as F
-    stack = {v['name']: (v['stackSize'], v['liquid']) for v in F.ITEMS.values()}
     machines = (ST.factory or {}).get('machines', [])
     st_pos = {s['name']: (s['pos'][0] / 100, s['pos'][1] / 100, s['mode'])
               for s in (ST.stations or {}).get('trucks', []) + (ST.stations or {}).get('trains', [])}
 
-    def demand(item, unload_names, r=250.0):
+    def demand(item, unload_names, r=DEMAND_RADIUS):
         """Demand at full load: target consumption of machines around the unloading stations (the factory behind them)."""
         pts = [st_pos[n][:2] for n in unload_names if n in st_pos]
         if not pts:
@@ -115,24 +120,20 @@ def schedule_check():
         return tot or None
     out = []
     now = int(time.time())
+    # items moved per station in the last 24 h: '<station>:<+|->:<item>' → amount
+    meas = {k[len('train:'):]: v for k, v in DB.train_totals(now - 24 * 3600)}
     for t in (ST.live or {}).get('trains', []):
-        with DB.lock:
-            rs = [r[0] for r in DB.db.execute("SELECT v FROM series_min WHERE key=? AND t>=? ORDER BY t DESC LIMIT 5",
-                                              ('round:' + t['name'], now - 48 * 3600))]
+        rs = DB.series_last('round:' + t['name'], now - 48 * 3600, 5)
         rnd = sorted(rs)[len(rs) // 2] if rs else None
         items = sorted((t.get('cargo') or {}).items(), key=lambda kv: -kv[1])
         wag = t.get('wagons') or 0
         caps = []
         # wagons per item from the cargo: amount ÷ wagon capacity, rounded up; remaining wagons split evenly
-        need_w = {it: max(1, math.ceil(a / (1600 if stack.get(it, (100, False))[1] else 32 * stack.get(it, (100, False))[0]))) for it, a in items}
+        need_w = {it: max(1, math.ceil(a / wagon_cap(it))) for it, a in items}
         spare = max(0, wag - sum(need_w.values()))
         for it, _ in items:
-            st, liq = stack.get(it, (100, False))
             w = need_w[it] + (spare // max(1, len(items)))
-            caps.append(dict(item=it, per_round=w * (1600 if liq else 32 * st)))
-        with DB.lock:
-            meas = dict(DB.db.execute("SELECT substr(key, length('train:') + 1), SUM(v) FROM series_min WHERE key LIKE 'train:%' AND t >= ? GROUP BY key",
-                                      (now - 24 * 3600,)).fetchall())
+            caps.append(dict(item=it, per_round=w * wagon_cap(it)))
         flows = []
         for c in caps:
             cap = c['per_round'] / (rnd / 60) if rnd else None
@@ -149,9 +150,8 @@ def schedule_check():
             if s['mode'] != 'load' or not s['items'] or not v.get('round'):
                 continue
             it = s['items'][0]['item']
-            st, liq = stack.get(it, (100, False))
-            slots = 25 if v['type'] == 'Tractor' else 48
-            cap = slots * st / (v['round'] / 60)
+            st, liq = STACK.get(it, DEFAULT_STACK)
+            cap = VEH_SLOTS.get(v['type'], TRUCK_SLOTS) * st / (v['round'] / 60)
             partners = [o['name'] for o in (ST.stations or {}).get('trucks', [])
                         if o['mode'] == 'unload' and any(x['id'] == v['id'] for x in o.get('vehicles', []))]
             need = demand(it, partners)

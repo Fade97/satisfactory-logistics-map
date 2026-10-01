@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
 # Installs Satisfactory Mod Loader + FicsIt Remote Monitoring on a Pterodactyl game server
 # (root SSH to the Wings host) and restarts it via the Pterodactyl client API.
-# --uninstall removes both again. Guide and pitfalls: docs/FRM.md.
+# Guide and pitfalls: docs/FRM.md.
 #
 #   SF_HOST=root@wings-host SF_KEY=~/.ssh/id_ed25519 PTERO_UUID=<server-uuid> PTERO_ENV=path/.env \
 #     tools/install_frm_pterodactyl.sh [--dry-run|--uninstall]
 #
+#   --uninstall  deletes FactoryGame/Mods/SML and the WHOLE FactoryGame/Mods/GameFeatures directory —
+#                including any other game-feature mods installed there — then restarts the server.
+#
 # PTERO_ENV contains PTERODACTYL_PANEL_URL and PTERODACTYL_CLIENT_API_KEY.
-# Download the .smod archives (LinuxServer) from https://ficsit.app into mods/ beforehand.
+# Download the .smod archives (LinuxServer) from https://ficsit.app into mods/ beforehand
+# (versions: SML_VERSION / FRM_VERSION below, or set them in the environment).
 set -euo pipefail
+
+SML_VERSION=${SML_VERSION:-3.12.0}
+FRM_VERSION=${FRM_VERSION:-1.5.3}
+SML_SMOD=SML-$SML_VERSION-LinuxServer.smod
+FRM_SMOD=FRM-$FRM_VERSION-LinuxServer.smod
 
 HOST=${SF_HOST:?SF_HOST missing (root@wings-host)}
 KEY=${SF_KEY:?SF_KEY missing (SSH key)}
@@ -54,8 +63,11 @@ stop_server() {
   echo "→ Stopping server"
   power stop
   [ $DRY = 1 ] && return
-  until [ "$(state)" = offline ]; do sleep 4; done
-  echo "→ offline"
+  for _ in $(seq 1 75); do               # up to 5 minutes
+    if [ "$(state)" = offline ]; then echo "→ offline"; return; fi
+    sleep 4
+  done
+  echo "!! Server does not stop — check the panel"; exit 1
 }
 
 start_server() {
@@ -82,7 +94,7 @@ if [ $MODE = uninstall ]; then
   exit 0
 fi
 
-for f in SML-3.12.0-LinuxServer.smod FRM-1.5.3-LinuxServer.smod; do
+for f in "$SML_SMOD" "$FRM_SMOD"; do
   [ -f "$HERE/mods/$f" ] || { echo "missing: mods/$f"; exit 1; }
 done
 
@@ -90,15 +102,14 @@ echo "→ Creating mods directory"
 run "${SSH[@]}" "$HOST" "mkdir -p $MODS/SML $FRMDIR"
 
 echo "→ Uploading archives"
-run scp -i "$KEY" -o IdentitiesOnly=yes "$HERE/mods/SML-3.12.0-LinuxServer.smod" \
-    "$HERE/mods/FRM-1.5.3-LinuxServer.smod" "$HOST:/tmp/"
+run scp -i "$KEY" -o IdentitiesOnly=yes "$HERE/mods/$SML_SMOD" "$HERE/mods/$FRM_SMOD" "$HOST:/tmp/"
 
 echo "→ Unpacking (each mod goes into a folder named after the plugin)"
 run "${SSH[@]}" "$HOST" "command -v unzip >/dev/null || (apt-get update -qq && apt-get install -y -qq unzip)"
-run "${SSH[@]}" "$HOST" "unzip -oq /tmp/SML-3.12.0-LinuxServer.smod -d $MODS/SML && \
-                         unzip -oq /tmp/FRM-1.5.3-LinuxServer.smod -d $FRMDIR && \
+run "${SSH[@]}" "$HOST" "unzip -oq /tmp/$SML_SMOD -d $MODS/SML && \
+                         unzip -oq /tmp/$FRM_SMOD -d $FRMDIR && \
                          chown -R pterodactyl:pterodactyl $MODS && \
-                         rm -f /tmp/SML-3.12.0-LinuxServer.smod /tmp/FRM-1.5.3-LinuxServer.smod && \
+                         rm -f /tmp/$SML_SMOD /tmp/$FRM_SMOD && \
                          ls -la $MODS"
 echo "→ First restart: SML loads FRM and registers its settings"
 restart_server

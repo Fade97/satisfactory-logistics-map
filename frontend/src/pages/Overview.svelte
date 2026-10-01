@@ -1,17 +1,21 @@
 <script lang="ts">
   // "What's going on?" — status at a glance: shortages, power, faults, changes since the last visit.
-  import { onDestroy } from 'svelte';
+  import { onMount } from 'svelte';
   import { factory, live, status, stations, events, progress } from '../lib/api';
   import { toMap, go } from '../lib/router';
   import { C, fmtNum, fmtMW, ago, clock, dur } from '../lib/fmt';
   import { tn } from '../lib/names';
   import { t, tr, lx, lxr, locale } from '../lib/i18n';
+  import { stationKey } from '../lib/scene';
+  import { KEYS } from '../lib/storage';
 
-  // Last visit: store on leaving the page, not on opening — otherwise "since" is always now
-  const LAST = 'fgmap.lastVisit';
-  const since = +(localStorage.getItem(LAST) || 0) || Math.floor(Date.now() / 1000) - 86400;
-  onDestroy(() => localStorage.setItem(LAST, String(Math.floor(Date.now() / 1000))));
-  addEventListener('beforeunload', () => localStorage.setItem(LAST, String(Math.floor(Date.now() / 1000))));
+  // Last visit: store on leaving the page (or closing the tab), not on opening — otherwise "since" is always now
+  const since = +(localStorage.getItem(KEYS.lastVisit) || 0) || Math.floor(Date.now() / 1000) - 86400;
+  const markVisit = () => localStorage.setItem(KEYS.lastVisit, String(Math.floor(Date.now() / 1000)));
+  onMount(() => {
+    addEventListener('beforeunload', markVisit);
+    return () => { removeEventListener('beforeunload', markVisit); markVisit(); };
+  });
 
   const f = $derived($factory);
   const power = $derived((f?.circuits || []).filter(c => c.cap > 0));
@@ -42,7 +46,7 @@
     for (const x of f?.factories || []) if (x.status === 'active' && x.starved >= 4 && x.starved / x.n > .3)
       out.push({ text: tr('{name}: {starved} of {n} machines missing input', { name: lxr(x.name), starved: x.starved, n: x.n }), level: 'warn', go: () => toMap('factory:' + x.key, x.center[0], x.center[1]) });
     for (const s of $stations?.trucks || []) if (s.mode === 'unload' && s.fill != null && s.fill < .02 && (s.vehicles || []).length)
-      out.push({ text: tr('{name} is empty', { name: s.name }), level: 'info', go: () => toMap('station:' + s.id.split('.').pop(), s.pos[0] / 100, s.pos[1] / 100) });
+      out.push({ text: tr('{name} is empty', { name: s.name }), level: 'info', go: () => toMap(stationKey(s), s.pos[0] / 100, s.pos[1] / 100) });
     return out;
   });
   // events since the last visit

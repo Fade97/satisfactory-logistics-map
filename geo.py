@@ -1,17 +1,17 @@
-"""Network geometry (rails, pipes, belts), machines and map markers from FRM → /api/geo.
+"""Network geometry (rails, pipes, belts) from FRM → /api/geo.
 
 Changes rarely — so mapd fetches it only every few minutes, not on the 5-second tick.
 Coordinates in metres as integers; polylines are simplified (Douglas-Peucker).
 """
-import json, os, sys
+import datetime, json
+
 import frm
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 TOL = 2.0                                   # metres: anything below is invisible on the map
 
 
-def _rdp(pts, tol):
-    """Douglas-Peucker, iterative (recursion would do for 134 points, but this is robust)."""
+def simplify(pts, tol=TOL):
+    """Douglas-Peucker polyline simplification, iterative. pts: [(x, y)] in metres."""
     if len(pts) < 3:
         return pts
     keep = [False] * len(pts)
@@ -52,49 +52,18 @@ def _lines(rows, tol=TOL):
                 ded.append(p)
         if len(ded) < 2:
             continue
-        out.append([[round(x), round(y)] for x, y in _rdp(ded, tol)])
+        out.append([[round(x), round(y)] for x, y in simplify(ded, tol)])
     return out
 
 
-def _xy(o):
-    l = o.get('location') or {}
-    return [round(float(l.get('x') or 0) / 100), round(float(l.get('y') or 0) / 100)]
-
-
 def build():
-    machines = []
-    for m in frm.get('getFactory'):
-        prod = m.get('production') or []
-        ing = m.get('ingredients') or []
-        state = ('off' if not m.get('IsConfigured') else 'paused' if m.get('IsPaused')
-                 else 'running' if m.get('IsProducing') else 'stopped')
-        machines.append(dict(
-            name=m.get('Name'), pos=_xy(m), recipe=m.get('Recipe') or None, state=state,
-            pct=round(float(m.get('Productivity') or 0)),
-            out=[dict(item=p.get('Name'), rate=round(float(p.get('CurrentProd') or 0), 1),
-                      max=round(float(p.get('MaxProd') or 0), 1)) for p in prod],
-            inp=[dict(item=i.get('Name'), rate=round(float(i.get('CurrentConsumed') or 0), 1))
-                 for i in ing],
-            fuse=bool((m.get('PowerInfo') or {}).get('FuseTriggered')),
-            power=round(float((m.get('PowerInfo') or {}).get('PowerConsumed') or 0), 1)))
-    gens = []
-    for g in frm.get('getGenerators'):
-        fuel = (g.get('FuelInventory') or [])
-        gens.append(dict(name=g.get('Name'), pos=_xy(g),
-                         prod=round(float(g.get('BaseProd') or 0), 1),
-                         fuel=fuel[0].get('Name') if fuel else None))
-    markers = [dict(name=m.get('Name'), pos=_xy(m), category=m.get('Category'),
-                    type=m.get('MapMarkerType')) for m in frm.get('getMapMarkers')]
-    import datetime
     return dict(at=datetime.datetime.now().isoformat(timespec='seconds'),
                 rails=_lines(frm.get('getTrainRails')),
                 pipes=_lines(frm.get('getPipes')),
-                belts=_lines(frm.get('getBelts')),
-                machines=machines, generators=gens, markers=markers)
+                belts=_lines(frm.get('getBelts')))
 
 
 if __name__ == '__main__':
     d = build()
-    print('geo: %.1f MB · %d rails, %d pipes, %d belts, %d machines, %d generators, %d markers' % (
-        len(json.dumps(d, separators=(',', ':'))) / 1e6, len(d['rails']), len(d['pipes']), len(d['belts']),
-        len(d['machines']), len(d['generators']), len(d['markers'])))
+    print('geo: %.1f MB · %d rails, %d pipes, %d belts' % (
+        len(json.dumps(d, separators=(',', ':'))) / 1e6, len(d['rails']), len(d['pipes']), len(d['belts'])))

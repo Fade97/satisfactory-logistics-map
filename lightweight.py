@@ -11,6 +11,11 @@ Layout follows the format that sat_sav_parse reads as well; independent implemen
 import math, struct
 import sbp, sav
 
+QUAT_BYTES, POS_BYTES, SCALE_BYTES, COLOURS_BYTES = 32, 24, 24, 32   # double[4], double[3], double[3], float[4] × 2
+TILE_CM = 800                           # foundation/roof tile edge
+NARROW_CM = 400                         # 4 m walls, railings, barriers
+DEDUP_XY_CM, DEDUP_Z_CM = 200, 400      # stacked foundations: one per 2 m cell and 4 m height step
+
 
 def _ref(r):
     return r.s(), r.s()
@@ -22,7 +27,7 @@ def parse(S):
     if not n:
         return []
     t = sav.obj(S.idx, n)[1]['trail']
-    r = sbp.R(t)
+    r = sbp.Reader(t)
     first = r.i32()
     ver = r.i32() if first == 0 else first           # depending on the save there is an extra zero word in front
     ncls = r.i32()
@@ -31,30 +36,20 @@ def parse(S):
         r.i32(); cls = r.s(); cnt = r.i32()
         items = []
         for _ in range(cnt):
-            qx, qy, qz, qw = struct.unpack_from('<4d', t, r.p); r.p += 32
-            x, y, z = struct.unpack_from('<3d', t, r.p); r.p += 24
-            r.p += 24                                  # scale
+            q = struct.unpack_from('<4d', t, r.p); r.p += QUAT_BYTES
+            x, y, z = struct.unpack_from('<3d', t, r.p); r.p += POS_BYTES
+            r.p += SCALE_BYTES
             _ref(r); _ref(r); _ref(r); _ref(r)         # swatch, material, pattern, skin
-            r.p += 32                                  # colours
+            r.p += COLOURS_BYTES                       # primary, secondary
             _ref(r); r.u8(); _ref(r); _ref(r)          # PaintFinish, PatternRotation, recipe, BlueprintProxy
             if ver >= 2:
                 if r.i32():
                     r.i32(); r.s(); size = r.i32(); r.p += size
                 if ver >= 3:
                     r.u8(); r.i32()
-            yaw = math.degrees(math.atan2(2 * (qw * qz + qx * qy), 1 - 2 * (qy * qy + qz * qz)))
-            items.append((x, y, z, yaw))
+            items.append((x, y, z, sbp.yaw_from_quat(q)))
         out.append((sbp.short(cls), items))
     return out
-
-
-if __name__ == '__main__':
-    import sys, factory, collections
-    S = factory.Save(sys.argv[1] if len(sys.argv) > 1 else 'saves/latest.sav')
-    res = parse(S)
-    print(sum(len(i) for _, i in res), 'objects in', len(res), 'classes')
-    for c, i in sorted(res, key=lambda x: -len(x[1]))[:15]:
-        print('%6d %s' % (len(i), c))
 
 
 MATERIAL = [('Asphalt', 1), ('Concrete', 2), ('Polished', 2), ('Metal', 3), ('Glass', 4), ('Frame', 3), ('Tar', 5)]
@@ -72,10 +67,10 @@ def detail(S):
         if not (is_found or is_wall):
             continue
         mat = next((m for k, m in MATERIAL if k in cls), 0)
-        width = 400 if ('_4x' in cls or 'Railing' in cls or 'Barrier' in cls) else 800
+        width = NARROW_CM if ('_4x' in cls or 'Railing' in cls or 'Barrier' in cls) else TILE_CM
         for x, y, z, yaw in items:
             if is_found:
-                key = (round(x / 200), round(y / 200), round(z / 400))
+                key = (round(x / DEDUP_XY_CM), round(y / DEDUP_XY_CM), round(z / DEDUP_Z_CM))
                 if key in seen:
                     continue
                 seen.add(key)
@@ -94,7 +89,6 @@ def detail_binary(S):
       tiles: n × [x, y, z] (m) + n × uint8 (rot 2 bits | material << 2)
       walls: n × [x1, y1, x2, y2, z] (x/y in half metres: value / 2 = m, so 4 m walls do not jump)
     """
-    import struct
     d = detail(S)
     T, W = d['tiles'], d['walls']
     clamp = lambda v: max(-32768, min(32767, int(round(v))))
@@ -105,3 +99,12 @@ def detail_binary(S):
         out += b'\0'                                  # align to 2 bytes for the int16 view
     out += struct.pack('<%dh' % (5 * len(W)), *[clamp(v) for w in W for v in (w[0] * 2, w[1] * 2, w[2] * 2, w[3] * 2, w[4])])
     return bytes(out)
+
+
+if __name__ == '__main__':
+    import sys, factory
+    S = factory.Save(sys.argv[1] if len(sys.argv) > 1 else 'saves/latest.sav')
+    res = parse(S)
+    print(sum(len(i) for _, i in res), 'objects in', len(res), 'classes')
+    for c, i in sorted(res, key=lambda x: -len(x[1]))[:15]:
+        print('%6d %s' % (len(i), c))

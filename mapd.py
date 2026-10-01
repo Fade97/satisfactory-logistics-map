@@ -14,13 +14,11 @@ Settings via environment variables, see README and .env.example.
 """
 import argparse, os, threading, traceback
 
-from mapsvc.core import ST, DB, log, DIST
+import frm
+from mapsvc.core import ST, log, DIST
 from mapsvc import source
 from mapsvc.collect import save_cycle, live_loop, factory_loop, save_loop, sink_loop
-from mapsvc.http import H, Server
-# backwards compatible for tests and tools that use mapd.<function>
-from mapsvc.factory import balance, block_kind, clusters, publish_factory  # noqa: F401
-from mapsvc.logistics import schedule_check  # noqa: F401
+from mapsvc.http import RequestHandler, Server
 
 
 def main():
@@ -28,21 +26,21 @@ def main():
     ap.add_argument('--port', type=int, default=8050)
     ap.add_argument('--bind', default='0.0.0.0')
     ap.add_argument('--no-fetch', action='store_true', help='only read saves/latest.sav, do not fetch from the server')
-    a = ap.parse_args()
-    log('Save source:', source.describe(), '· FRM:', __import__('frm').BASE or 'off')
+    args = ap.parse_args()
+    log('Save source:', source.describe(), '· FRM:', frm.BASE or 'off')
     try:
-        save_cycle(a.no_fetch)
+        save_cycle(args.no_fetch)
     except source.SourceError as e:
         ST.save_error = str(e)
         log('first save fetch failed:', e)
     except Exception:
         log('first save run failed:\n' + traceback.format_exc()[-800:])
-    for fn, args in ((live_loop, ()), (factory_loop, ()), (save_loop, (a.no_fetch,)), (sink_loop, ())):
-        threading.Thread(target=fn, args=args, daemon=True).start()
+    for fn, fn_args in ((live_loop, ()), (factory_loop, ()), (save_loop, (args.no_fetch,)), (sink_loop, ())):
+        threading.Thread(target=fn, args=fn_args, daemon=True).start()
     if not os.path.isdir(DIST):
         log('Warning: frontend/dist missing — build it first (cd frontend && pnpm install && pnpm run build)')
-    log('Logistics map on http://%s:%d' % (a.bind, a.port))
-    Server((a.bind, a.port), H).serve_forever()
+    log('Logistics map on http://%s:%d' % (args.bind, args.port))
+    Server((args.bind, args.port), RequestHandler).serve_forever()
 
 
 if __name__ == '__main__':

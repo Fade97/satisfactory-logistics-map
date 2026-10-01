@@ -1,8 +1,13 @@
 """Factory: item balance, block reason, publishing + history, factory clusters."""
-import collections
+import collections, threading
 
 from factory import EXTRACT
 from .core import ST, DB, paused
+from .events import factory_events
+
+ATTACH_RADIUS = 30.0        # m: unconnected single machines join the nearest belt group within this distance
+FLOOR_GAP = 10              # m: links between machines further apart vertically only count if one supplies the other
+_publish_lock = threading.Lock()     # loops and HTTP (rename) publish; keep each publish atomic
 
 
 # ================================================================ factory (FRM or save) → balance, power, history
@@ -43,6 +48,11 @@ def block_kind(m):
 
 
 def publish_factory(fac, source, t):
+    with _publish_lock:
+        _publish(fac, source, t)
+
+
+def _publish(fac, source, t):
     ST.factory, ST.factory_source = fac, source
     for m in fac['machines']:
         m['block'] = block_kind(m)
@@ -60,10 +70,9 @@ def publish_factory(fac, source, t):
     bal = balance(fac['machines'], fac['generators'])
     out = dict(source=source, at=int(t), machines=fac['machines'], generators=fac['generators'],
                batteries=fac.get('batteries', []), circuits=fac['circuits'], balance=bal,
-               factories=clusters(fac['machines'], (getattr(ST, 'save_factory', None) or {}).get('links') or fac.get('links')))
+               factories=clusters(fac['machines'], (ST.save_factory or {}).get('links') or fac.get('links')))
     ST.put('factory', out)
     record(out, t)
-    from .events import factory_events      # late import: events needs factory.balance
     factory_events(out, t)
 
 
@@ -91,7 +100,8 @@ def clusters(machines, links=None, eps=60.0):
     With belt connections from the save (`links`): machines are connected if a belt/pipe joins them with no
     storage in between; if two machines are more than 10 m apart vertically, the link only counts when one
     actually supplies the other (otherwise manifold belts across floors merge everything).
-    Without `links` (FRM only): proximity (single linkage, eps metres) as a fallback.
+    Without `links` (FRM only): proximity (single linkage, eps metres) as a fallback; with `links`, unconnected
+    machines are attached by proximity within ATTACH_RADIUS instead (eps is not used then).
     Key = smallest machine ID in the group — stays stable so renames persist.
     """
     pts = [m for m in machines if m['state'] != 'off' or m.get('recipe')]
@@ -112,17 +122,17 @@ def clusters(machines, links=None, eps=60.0):
             if a not in idx or b not in idx:
                 continue
             ma, mb = pts[idx[a]], pts[idx[b]]
-            if abs((ma.get('z') or 0) - (mb.get('z') or 0)) > 10:
+            if abs((ma.get('z') or 0) - (mb.get('z') or 0)) > FLOOR_GAP:
                 oa = {o['item'] for o in ma['out']}; ia = {i['item'] for i in ma['inp']}
                 ob = {o['item'] for o in mb['out']}; ib = {i['item'] for i in mb['inp']}
                 if not (oa & ib or ob & ia):
                     continue
             union(idx[a], idx[b])
-        # attach unconnected single machines to the nearest group within 30 m (water pumps, hand-fed machines)
-        eps = 30.0
+    # with links: attach unconnected single machines to the nearest group (water pumps, hand-fed machines)
+    radius = ATTACH_RADIUS if links else eps
     grid = collections.defaultdict(list)
     for i, m in enumerate(pts):
-        grid[(int(m['pos'][0] // eps), int(m['pos'][1] // eps))].append(i)
+        grid[(int(m['pos'][0] // radius), int(m['pos'][1] // radius))].append(i)
     sizes = collections.Counter(find(i) for i in range(len(pts)))
     for (gx, gy), ids in grid.items():
         for dx in (-1, 0, 1):
@@ -134,7 +144,7 @@ def clusters(machines, links=None, eps=60.0):
                         if links and sizes[find(i)] > 1 and sizes[find(j)] > 1:
                             continue            # do not merge two real belt groups by proximity
                         a, b = pts[i]['pos'], pts[j]['pos']
-                        if (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 <= eps * eps:
+                        if (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 <= radius * radius:
                             union(i, j)
                             sizes = collections.Counter(find(k) for k in range(len(pts))) if links else sizes
     groups = collections.defaultdict(list)

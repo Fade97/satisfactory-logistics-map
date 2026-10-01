@@ -1,7 +1,14 @@
-"""Events (edge detection, hysteresis, 2 h cooldown), change log, growth, storage warnings."""
-import collections, json, os, re, time
+"""Events (edge detection, hysteresis, cooldown), change log, growth, storage warnings."""
+import collections, json, os, re, threading, time
 
 from .core import ST, DB, paused
+from .logistics import train_transfers, train_rounds
+
+EVENT_COOLDOWN = 2 * 3600       # s: report the same edge again after this at the earliest
+BATTERY_LOW = 0.2               # share of battery capacity
+STALL_ON, STALL_OFF, STALL_MIN = .3, .15, 4     # share of starved machines: warn above / clear below; min. machines
+STORAGE_FULL, STORAGE_CLEAR = .98, .9           # container fill: warn above / clear below
+BACKUP_RADIUS = 60              # m: machines with full output this close count as backed up by a container
 
 
 # ---------------------------------------------------------------- legacy German event texts → English (one-off)
@@ -10,7 +17,9 @@ TEXTS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def _de_to_en():
     rules = []
-    for en, de in json.load(open(TEXTS)):
+    with open(TEXTS) as f:
+        pairs = json.load(f)
+    for en, de in pairs:
         rx = re.compile('^' + re.sub(r'\\\{(\d)\\\}', '(.+?)', re.escape(de)) + '$', re.S)
         rules.append((rx, [int(n) for n in re.findall(r'\{(\d)\}', de)], en))
 
@@ -28,15 +37,7 @@ def migrate_texts():
     """Translate events from before the switch to English backend texts — once per database."""
     if DB.kv_get('texts_en', False) or not os.path.exists(TEXTS):
         return
-    conv = _de_to_en()
-    with DB.lock:
-        rows = DB.db.execute('SELECT id, text FROM events').fetchall()
-        n = 0
-        for i, t in rows:
-            e = conv(t or '')
-            if e != t:
-                DB.db.execute('UPDATE events SET text = ? WHERE id = ?', (e, i)); n += 1
-        DB.db.commit()
+    n = DB.rewrite_event_texts(_de_to_en())
     DB.kv_put('texts_en', True)
     if n:
         print('Event texts migrated to English:', n, flush=True)
@@ -46,36 +47,37 @@ migrate_texts()
 
 
 # ---------------------------------------------------------------- events
-_seen = {k: set(v) for k, v in DB.kv_get('seen', {}).items()}
+# edge state, shared by the live/factory/save loops and HTTP (factory rename) — guarded by _edge_lock
+_seen = {k: set(v) for k, v in DB.kv_get('seen', {}).items()}      # (kind → keys) currently active, persisted
+_last = {}                                                          # (kind, key) → time of the last report
+_edge_lock = threading.Lock()
 
 
 def _edge(kind, key, active, level, text, x=None, y=None, clear=None):
     """Report only on a change (edge), not again every minute — not even after a restart.
 
     `clear` (optional) is a stricter condition for resetting (hysteresis): otherwise a factory oscillating
-    around the warning threshold would report again every few minutes. Additionally, re-report after 2 h at the earliest.
+    around the warning threshold would report again every few minutes. Additionally, re-report after EVENT_COOLDOWN at the earliest.
     """
-    s = _seen.setdefault(kind, set())
-    if active and key not in s:
-        last = _last.get((kind, key), 0)
-        s.add(key)
-        if time.time() - last > 7200:
-            DB.event(kind, level, text, ref=str(key), x=x, y=y)
-            _last[(kind, key)] = time.time()
-        DB.kv_put('seen', {k: sorted(v, key=str) for k, v in _seen.items()})
-    elif not active and key in s and (clear is None or clear):
-        s.discard(key)
-        DB.kv_put('seen', {k: sorted(v, key=str) for k, v in _seen.items()})
-
-
-_last = {}
+    with _edge_lock:
+        s = _seen.setdefault(kind, set())
+        if active and key not in s:
+            last = _last.get((kind, key), 0)
+            s.add(key)
+            if time.time() - last > EVENT_COOLDOWN:
+                DB.event(kind, level, text, ref=str(key), x=x, y=y)
+                _last[(kind, key)] = time.time()
+            DB.kv_put('seen', {k: sorted(v, key=str) for k, v in _seen.items()})
+        elif not active and key in s and (clear is None or clear):
+            s.discard(key)
+            DB.kv_put('seen', {k: sorted(v, key=str) for k, v in _seen.items()})
 
 
 def factory_events(fac, t):
     for c in fac['circuits']:
         _edge('fuse', c['id'], c.get('fuse'), 'error', 'Fuse tripped in grid %s' % c['id'])
         if c.get('battery_cap'):
-            _edge('battery', c['id'], c['battery'] < 0.2 * c['battery_cap'] and c['use'] > c['prod'], 'warn',
+            _edge('battery', c['id'], c['battery'] < BATTERY_LOW * c['battery_cap'] and c['use'] > c['prod'], 'warn',
                   'Battery in grid %s below 20 %%' % c['id'])
     nop = [x for x in fac['machines'] if x.get('nopower')]
     _edge('nopower', 'all', bool(nop), 'warn', '%d machines not connected to power' % len(nop),
@@ -85,8 +87,8 @@ def factory_events(fac, t):
             _edge('stall', f['key'], False, 'warn', '')
             continue
         bad = f['starved'] / max(1, f['n'])
-        _edge('stall', f['key'], bad > .3 and f['starved'] >= 4, 'warn', '%s: %d of %d machines missing input' % (
-            f['name'], f['starved'], f['n']), *f['center'], clear=bad < .15)
+        _edge('stall', f['key'], bad > STALL_ON and f['starved'] >= STALL_MIN, 'warn', '%s: %d of %d machines missing input' % (
+            f['name'], f['starved'], f['n']), *f['center'], clear=bad < STALL_OFF)
 
 
 def live_events(live):
@@ -102,7 +104,6 @@ def live_events(live):
                 DB.event('player', 'info', '%s is offline' % p['name'], ref='player:' + p['name'], x=x, y=y)
             if o and p['dead'] and not o['dead']:
                 DB.event('player', 'warn', '%s died' % p['name'], ref='player:' + p['name'], x=x, y=y)
-    from .logistics import train_transfers, train_rounds
     train_transfers(live)
     train_rounds(live)
     for v in live.get('trains', []):
@@ -137,7 +138,8 @@ def changelog(fac, t):
         cnt = collections.Counter(r[0] for r in rows)
         who = sorted({r[3] for r in rows if r[3]})
         x = sum(r[1] for r in rows) / len(rows); y = sum(r[2] for r in rows) / len(rows)
-        DB.event('build', lvl, '%s %s%s' % (', '.join('%d× %s' % (n, k) for k, n in cnt.most_common(4)), label,
+        top = sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))[:4]      # ties by name → stable text
+        DB.event('build', lvl, '%s %s%s' % (', '.join('%d× %s' % (n, k) for k, n in top), label,
                                               ' (%s)' % ', '.join(who) if who else ''), ref='build', x=x, y=y, t=t)
 
 
@@ -159,15 +161,15 @@ def growth(fac, t):
 # ---------------------------------------------------------------- storage + sink
 def storage_events(st):
     """'Storage full' warning: only containers with a factory attached that backs up because of it (machines with full
-    output within 60 m) — a full end-of-line storage with no inflow is intended. One report per container, hysteresis via _edge."""
+    output within BACKUP_RADIUS) — a full end-of-line storage with no inflow is intended. One report per container, hysteresis via _edge."""
     fac = ST.factory or {}
     full_out = [m for m in fac.get('machines', []) if m.get('block') == 'full']
     for c in st:
         if c['fill'] is None or 'Tank' in c['cls']:
             continue
-        near = sum(1 for m in full_out if (m['pos'][0] - c['pos'][0]) ** 2 + (m['pos'][1] - c['pos'][1]) ** 2 < 3600)
+        near = sum(1 for m in full_out if (m['pos'][0] - c['pos'][0]) ** 2 + (m['pos'][1] - c['pos'][1]) ** 2 < BACKUP_RADIUS ** 2)
         it = c['items'][0]['item'] if c['items'] else '?'
-        _edge('full', c['id'], c['fill'] > .98 and near >= 2, 'warn', 'Storage full (%s), %d machines backed up' % (it, near),
-              c['pos'][0], c['pos'][1], clear=c['fill'] < .9)
+        _edge('full', c['id'], c['fill'] > STORAGE_FULL and near >= 2, 'warn', 'Storage full (%s), %d machines backed up' % (it, near),
+              c['pos'][0], c['pos'][1], clear=c['fill'] < STORAGE_CLEAR)
 
 

@@ -3,8 +3,8 @@
   import { onMount, onDestroy } from 'svelte';
   import { clock } from '../fmt';
   import { t, locale } from '../i18n';
-
-  export interface Frame { p: any[]; tr: any[]; tk: any[]; f: any[]; pw: any[] }
+  import { fetchJson } from '../api';
+  import type { Frame } from '../types';
   let { onframe, onclose }: { onframe: (t: number | null, f: Frame | null) => void; onclose: () => void } = $props();
 
   let hours = $state(6);
@@ -15,12 +15,19 @@
   let loading = $state(true);
   let timer = 0;
 
+  let req = 0;                             // only the latest request may set the frames
   async function load() {
+    const my = ++req;
     loading = true;
     const step = hours > 12 ? 180 : hours > 6 ? 120 : 60;
-    frames = await (await fetch(`/api/frames?h=${hours}&step=${step}`)).json();
-    idx = Math.max(0, frames.length - 1);
-    loading = false; emit();
+    try {
+      const fs = await fetchJson<[number, Frame][]>(`/api/frames?h=${hours}&step=${step}`);
+      if (my !== req) return;
+      frames = fs;
+      idx = Math.max(0, frames.length - 1);
+      emit();
+    } catch { /* offline: keep the frames shown so far */ }
+    finally { if (my === req) loading = false; }
   }
   function emit() { const f = frames[idx]; onframe(f ? f[0] : null, f ? f[1] : null); }
   function play() {

@@ -3,7 +3,9 @@
   import { toMap } from '../lib/router';
   import { fmtMW, fmtNum, dur, C, SERIES, ago } from '../lib/fmt';
   import { CIRCUIT_COLORS } from '../lib/scene';
+  import type { Circuit, Generator } from '../lib/types';
   import LineChart from '../lib/LineChart.svelte';
+  import Segmented from '../lib/Segmented.svelte';
   import { tn } from '../lib/names';
   import { t, tr } from '../lib/i18n';
 
@@ -13,22 +15,26 @@
   let range = $state(86400);
   let hist = $state<Record<number, any[]>>({});
 
+  let req = 0;                           // only the latest request may set the charts (range can change meanwhile)
   async function load() {
+    const my = ++req;
     const out: Record<number, any[]> = {};
-    for (const c of circuits.slice(0, 6)) {
-      const k = 'power:' + c.id + ':';
-      const r = await series([k + 'prod', k + 'use', k + 'cap'], Date.now() / 1000 - range);
-      out[c.id] = [
-        { key: 'use', label: tr('Consumption'), points: r.data[k + 'use'] || [], color: SERIES[0] },
-        { key: 'cap', label: tr('Capacity'), points: r.data[k + 'cap'] || [], color: SERIES[1], dash: true },
-      ];
-    }
-    hist = out;
+    try {
+      for (const c of circuits.slice(0, 6)) {
+        const k = 'power:' + c.id + ':';
+        const r = await series([k + 'prod', k + 'use', k + 'cap'], Date.now() / 1000 - range);
+        out[c.id] = [
+          { key: 'use', label: tr('Consumption'), points: r.data[k + 'use'] || [], color: SERIES[0] },
+          { key: 'cap', label: tr('Capacity'), points: r.data[k + 'cap'] || [], color: SERIES[1], dash: true },
+        ];
+      }
+    } catch { return; }                    // history unavailable: keep the charts shown so far
+    if (my === req) hist = out;
   }
   $effect(() => { void range; void circuits.length; load(); });
 
   const gens = $derived.by(() => {
-    const m = new Map<string, { fuel: string; n: number; cap: number; rate: number; running: number; minLeft: number | null; list: any[] }>();
+    const m = new Map<string, { fuel: string; n: number; cap: number; rate: number; running: number; minLeft: number | null; list: Generator[] }>();
     for (const g of f?.generators || []) {
       const k = g.name + '|' + (g.fuel || '—');
       const e = m.get(k) || { fuel: g.fuel || '—', n: 0, cap: 0, rate: 0, running: 0, minLeft: null, list: [] };
@@ -47,7 +53,7 @@
       return { fuel: g.fuel, need: g.rate, other, prod: x?.prod ?? 0 };
     });
   });
-  const load_ = (c: any) => c.cap ? c.use / c.cap : 0;
+  const utilization = (c: Circuit) => c.cap ? c.use / c.cap : 0;
 </script>
 
 <div class="page">
@@ -65,7 +71,7 @@
   {/if}
   <div class="nets">
     {#each circuits as c, i (c.id)}
-      {@const pct = load_(c)}
+      {@const pct = utilization(c)}
       <div class="panel card net">
         <div class="hd"><span class="sw" style="background:{CIRCUIT_COLORS[Math.abs(c.id) % CIRCUIT_COLORS.length]}"></span><h2>{$t('Grid {id}', { id: c.id })}</h2>
           {#if c.fuse}<span class="tag bad">⚠ {$t('Fuse tripped')}</span>{/if}
@@ -90,7 +96,7 @@
     {:else}<p class="muted">{$t('No power grids found.')}</p>{/each}
   </div>
   <div class="seg">
-    {#each [[21600, '6 h'], [86400, '24 h'], [604800, $t('7 days')], [2592000, $t('30 days')]] as [s, l]}<button class:on={range === s} onclick={() => (range = +s)}>{l}</button>{/each}
+    <Segmented bind:value={range} options={[[21600, '6 h'], [86400, '24 h'], [604800, $t('7 days')], [2592000, $t('30 days')]]} />
   </div>
 
   <div class="grid2" style="margin-top:16px">
@@ -145,8 +151,8 @@
   .ch { margin-top: 12px; }
   .small { font-size: 12px; }
   .seg { display: inline-flex; margin-top: 10px; }
-  .seg button { background: var(--plate); border: 1px solid var(--seam); padding: 4px 12px; font-size: 13px; color: var(--text2); margin-right: -1px; }
-  .seg button.on { background: var(--ficsit); color: #1b1c1e; border-color: var(--ficsit); }
+  .seg :global(button) { background: var(--plate); border: 1px solid var(--seam); padding: 4px 12px; font-size: 13px; color: var(--text2); margin-right: -1px; }
+  .seg :global(button.on) { background: var(--ficsit); color: #1b1c1e; border-color: var(--ficsit); }
   .fb { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 6px 0; border-bottom: 1px solid #2c2e31; font-size: 13px; }
   @media (max-width: 760px) { .nets { grid-template-columns: 1fr; } .big { grid-template-columns: repeat(2, 1fr); } .fb { grid-template-columns: 1fr; gap: 2px; } }
 </style>

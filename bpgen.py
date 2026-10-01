@@ -10,8 +10,8 @@ All remaining machines get the recipe; full machines run at `full_clock`, the la
 Constructor and Smelter only (one input and one output each). The generator rejects everything else.
 Status: EXPERIMENTAL — not tested in the game. Output goes to OUT (data/blueprints/), not to the server automatically.
 """
-import copy, json, math, os, re
-import sbp, gen
+import json, math, os, re
+import sbp
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 RPATH = json.load(open(os.path.join(HERE, 'gamedata', 'recipe_paths.json')))
@@ -22,6 +22,11 @@ OUT = os.path.join(os.environ.get('MAP_DATA', os.path.join(HERE, 'data')), 'blue
 
 class BpError(Exception):
     pass
+
+
+def _mentions(data, names):
+    """True if data references one of the object names (followed by '.' or the string terminator, not a longer ID)."""
+    return any(d.encode() + b'.' in data or d.encode() + b'\x00' in data for d in names)
 
 
 def supported(recipe_cls):
@@ -58,7 +63,7 @@ def build(step):
     for h, o in zip(B['headers'], B['objs']):
         if h['type'] == 1 and h['cls'].endswith('Build_PowerLine_C') and o['obj']:
             t = o['obj']['trail']
-            if any(d.encode() in t for d in drop):
+            if _mentions(t, drop):
                 drop.add(h['name'])
     hs, os_ = [], []
     for h, o in zip(B['headers'], B['objs']):
@@ -84,7 +89,7 @@ def build(step):
     fn = re.sub(r'[^\w .,%+-]', '', label).strip()[:60]
     path = os.path.join(OUT, fn + '.sbp')
     sbp.save(path, H2, dict(B, headers=hs, objs=os_))
-    gen.write_cfg(path + 'cfg', 'Planner: %s, %d machines. Experimental — test before use.' % (R['name'], n), src=tpl + 'cfg')
+    sbp.write_cfg(path + 'cfg', 'Planner: %s, %d machines. Experimental — test before use.' % (R['name'], n), tpl + 'cfg')
     # cross-check: re-read; everything must parse and write back byte-exactly
     H3, B3 = sbp.load(path)
     bad = sum(1 for o in B3['objs'] if o.get('obj') is None)
@@ -92,17 +97,17 @@ def build(step):
         raise BpError('Generated blueprint has %d unreadable objects' % bad)
     # no object may still point at something removed (properties and raw trails, checked byte-exactly)
     for o in B3['objs']:
-        if any(d.encode() + b'.' in o['data'] or d.encode() + b'\x00' in o['data'] for d in drop):
+        if _mentions(o['data'], drop):
             raise BpError('Reference to a removed object left — blueprint discarded')
     return path, dict(file=os.path.basename(path), machines=n, template=TEMPLATES[bcls], objects=len(hs))
 
 
 def _set_machine(obj, recipe_path, clock):
     props = [p for p in obj['props'] if p['name'] not in ('mCurrentRecipe', 'mCurrentPotential', 'mPendingPotential')]
-    props.insert(0, gen.P_obj('mCurrentRecipe', ['', recipe_path]))
+    props.insert(0, sbp.P_obj('mCurrentRecipe', ['', recipe_path]))
     if abs(clock - 1.0) > 1e-4:
-        props.insert(1, gen.P_float('mCurrentPotential', clock))
-        props.insert(2, gen.P_float('mPendingPotential', clock))
+        props.insert(1, sbp.P_float('mCurrentPotential', clock))
+        props.insert(2, sbp.P_float('mPendingPotential', clock))
     obj['props'] = props
 
 

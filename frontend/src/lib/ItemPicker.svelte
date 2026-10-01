@@ -7,6 +7,7 @@
   import { fuzzy } from './fuzzy';
   import { tn, both } from './names';
   import { t, tr } from './i18n';
+  import { portal } from './actions';
 
   let { value = $bindable(''), items = [], placeholder = tr('Search items'), onpick = (_: string) => {}, clearOnPick = false }:
     { value?: string; items: string[]; placeholder?: string; onpick?: (v: string) => void; clearOnPick?: boolean } = $props();
@@ -35,12 +36,6 @@
     addEventListener('resize', f); addEventListener('scroll', f, true);
     return () => { removeEventListener('resize', f); removeEventListener('scroll', f, true); };
   });
-
-  /** Svelte action: move the element to <body>, remove it again on destroy. */
-  function portal(node: HTMLElement) {
-    document.body.appendChild(node);
-    return { destroy() { node.remove(); } };
-  }
 
   function pick(v: string) {
     value = clearOnPick ? '' : v; q = clearOnPick ? '' : $tn(v); open = false; onpick(v);

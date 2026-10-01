@@ -1,36 +1,38 @@
 <script lang="ts">
   // Production planner: targets → LP in the backend → flow diagram, build list, free nodes, save as note.
   import { onMount } from 'svelte';
-  import { nodes, factory, status } from '../lib/api';
+  import { nodes, factory, status, fetchJson } from '../lib/api';
   import { route, toMap } from '../lib/router';
-  import { fmtNum, fmtMW } from '../lib/fmt';
+  import { C, fmtNum, fmtMW, purityRank, purityLabel } from '../lib/fmt';
+  import { KEYS, loadJson, saveJson } from '../lib/storage';
+  import type { PlanResult, PlanResponse, PlanStep } from '../lib/types';
   import PinEditor from '../lib/PinEditor.svelte';
   import ItemPicker from '../lib/ItemPicker.svelte';
+  import Segmented from '../lib/Segmented.svelte';
   import { layout, edgePath, W, H, LABEL_CHARS, type FNode, type FEdge } from '../lib/flowlayout';
   import { tn } from '../lib/names';
   import { t, tr, lxr } from '../lib/i18n';
 
-  interface Step { recipe: string; cls: string; alt: boolean; building: string; machines: number; full: number; clock: number | null; power: number;
-    out: { item: string; rate: number }[]; inp: { item: string; rate: number }[] }
   let recipes = $state<{ key: string; item: string; fluid: boolean; recipes: { cls: string; name: string; alt: boolean }[] }[]>([]);
   let targets = $state<{ item: string; rate: number }[]>([{ item: '', rate: 10 }]);
   let exclude = $state<string[]>([]);
-  const SAVED = JSON.parse(localStorage.getItem('fgmap.planner') || '{}');
+  const SAVED = loadJson<Record<string, any>>(KEYS.planner, {});
   let useSurplus = $state(SAVED.useSurplus ?? true);
   let goal = $state<'raw' | 'machines' | 'power'>(SAVED.goal || 'raw');
   let maxClock = $state<number>(SAVED.maxClock || 100);
   let sloop = $state<boolean>(!!SAVED.sloop);
   let allow = $state<Record<string, string[]>>(SAVED.allow || {});      // item → allowed recipe classes
   let recipeFor = $state<string | null>(null);                          // open recipe picker
-  let res = $state<any>(null), busy = $state(false), err = $state('');
-  let site = $state<{ x: number; y: number } | null>(JSON.parse(localStorage.getItem('fgmap.site') || 'null'));
-  $effect(() => localStorage.setItem('fgmap.planner', JSON.stringify({ useSurplus, goal, maxClock, sloop, allow })));
+  let res = $state<PlanResult | null>(null), busy = $state(false), err = $state('');
+  let site = $state<{ x: number; y: number } | null>(loadJson(KEYS.site, null));
+  $effect(() => saveJson(KEYS.planner, { useSurplus, goal, maxClock, sloop, allow }));
   let savePin = $state<any>(null);
 
   onMount(async () => {
-    recipes = await (await fetch('/api/recipes')).json();
+    try { recipes = await fetchJson('/api/recipes'); }
+    catch (e: any) { err = tr('The planner is not responding: {msg}', { msg: e.message }); return; }
     const q = $route.q;
-    const last = JSON.parse(localStorage.getItem('fgmap.plannerTargets') || 'null');
+    const last = loadJson<{ item: string; rate: number }[] | null>(KEYS.plannerTargets, null);
     if (q.get('item')) { targets = [{ item: q.get('item')!, rate: +(q.get('rate') || 10) }]; run(); }
     else if (last?.length) { targets = last; run(); }                 // back from the map: show the last plan again
   });
@@ -42,10 +44,10 @@
     if (bad) { err = tr('“{item}” is not a craftable item. Pick an entry from the list.', { item: bad.item }); return; }
     busy = true; err = '';
     try {
-      const r = await (await fetch('/api/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targets: tg, exclude, use_surplus: useSurplus, goal, max_clock: maxClock / 100, sloop, allow }) })).json();
-      localStorage.setItem('fgmap.plannerTargets', JSON.stringify(tg));
-      if (!r.ok) { err = lxr(r.error); res = null; } else res = r;
+      const r = await fetchJson<PlanResponse>('/api/plan', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: tg, exclude, use_surplus: useSurplus, goal, max_clock: maxClock / 100, sloop, allow }) });
+      saveJson(KEYS.plannerTargets, tg);
+      if ('error' in r) { err = lxr(r.error); res = null; } else res = r;
     } catch (e: any) { err = tr('The planner is not responding: {msg}', { msg: e.message }); } finally { busy = false; }
   }
 
@@ -82,12 +84,12 @@
       seen.add(n);
       for (const e of graph.ins.get(n) || []) rec(e.a, depth + 1, e.rate, e.item);
     };
-    for (const tn_ of graph.nodes.filter(n => n.kind === 'target')) {
-      if (tn_.data) {                                 // target step: itself as the root
-        seen.add(tn_);
-        rows.push({ depth: 0, label: tn_.label, sub: tn_.sub, rate: tn_.data.out[0]?.rate ?? 0, kind: 'target', again: false });
-        for (const e of graph.ins.get(tn_) || []) rec(e.a, 1, e.rate, e.item);
-      } else for (const e of graph.ins.get(tn_) || []) rec(e.a, 0, e.rate, e.item);
+    for (const target of graph.nodes.filter(n => n.kind === 'target')) {
+      if (target.data) {                              // target step: itself as the root
+        seen.add(target);
+        rows.push({ depth: 0, label: target.label, sub: target.sub, rate: target.data.out[0]?.rate ?? 0, kind: 'target', again: false });
+        for (const e of graph.ins.get(target) || []) rec(e.a, 1, e.rate, e.item);
+      } else for (const e of graph.ins.get(target) || []) rec(e.a, 0, e.rate, e.item);
     }
     return rows;
   });
@@ -95,12 +97,11 @@
   // --- Free nodes near the build site
   const nodeHints = $derived.by(() => {
     if (!res || !$nodes) return [];
-    const P: Record<string, number> = { pure: 3, normal: 2, impure: 1 };
-    return res.raw.filter((r: any) => r.item !== 'Water').map((r: any) => {
+    return res.raw.filter(r => r.item !== 'Water').map(r => {
       const free = $nodes!.filter(n => !n.used && n.item === r.item);
       const ref = site || centerOfFactory();
       const withD = free.map(n => ({ n, d: ref ? Math.hypot(n.pos[0] - ref.x, n.pos[1] - ref.y) : 0 }))
-        .sort((a, b) => (P[b.n.purity || ''] || 0) - (P[a.n.purity || ''] || 0) || a.d - b.d);
+        .sort((a, b) => purityRank(b.n.purity) - purityRank(a.n.purity) || a.d - b.d);
       return { item: r.item, rate: r.rate, list: withD.slice(0, 4) };
     });
   });
@@ -108,13 +109,12 @@
     const f = $factory?.factories?.[0];
     return f ? { x: f.center[0], y: f.center[1] } : null;
   }
-  const PUR: Record<string, string> = { pure: 'pure', normal: 'normal', impure: 'impure' };
 
   let bpErr = $state('');
-  async function blueprint(s: Step) {
+  async function blueprint(s: PlanStep) {
     bpErr = '';
     const r = await fetch('/api/blueprint', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cls: s.cls, building: s.building, machines: s.machines, full_clock: (s as any).full_clock || 100, clock: s.clock }) });
+      body: JSON.stringify({ cls: s.cls, building: s.building, machines: s.machines, full_clock: s.full_clock || 100, clock: s.clock }) });
     if (!r.ok) { const e = (await r.json().catch(() => ({}))).error; bpErr = e ? lxr(e) : tr('Blueprint failed'); return; }
     const blob = await r.blob(), a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -123,12 +123,12 @@
   }
 
   function toPin() {
-    const tg = res.targets.map((x: any) => fmtNum(x.rate) + '/min ' + x.item).join(', ');
-    const lines = res.steps.map((s: Step) => `${fmtNum(s.machines)}× ${s.building}: ${s.recipe}`);
+    const tg = res.targets.map(x => fmtNum(x.rate) + '/min ' + x.item).join(', ');
+    const lines = res.steps.map(s => `${fmtNum(s.machines)}× ${s.building}: ${s.recipe}`);
     const at = site || centerOfFactory() || { x: 0, y: 0 };
-    savePin = { author: '', cat: 'planned', color: '#f59a23', shape: 'point', geom: [[Math.round(at.x), Math.round(at.y)]],
+    savePin = { author: '', cat: 'planned', color: C.accent, shape: 'point', geom: [[Math.round(at.x), Math.round(at.y)]],
       text: [tr('Plan: {targets}', { targets: tg }), ...lines,
-             tr('Resources: {raw} · Power {power}', { raw: res.raw.map((r: any) => fmtNum(r.rate) + ' ' + r.item).join(', '), power: fmtMW(res.power) })].join('\n').slice(0, 500) };
+             tr('Resources: {raw} · Power {power}', { raw: res.raw.map(r => fmtNum(r.rate) + ' ' + r.item).join(', '), power: fmtMW(res.power) })].join('\n').slice(0, 500) };
   }
   const opts = $derived(recipes.map(r => r.item));
   const altFor = (item: string) => recipes.find(r => r.item === item)?.recipes || [];
@@ -152,14 +152,13 @@
     </div>
     <div class="row opts">
       <span class="ol">{$t('Optimize for')}</span>
-      <div class="seg">{#each [['raw', $t('fewest resources')], ['machines', $t('fewest machines')], ['power', $t('least power')]] as [k, l]}
-        <button class:on={goal === k} onclick={() => { goal = k as any; if (res) run(); }}>{l}</button>{/each}</div>
+      <div class="seg"><Segmented bind:value={goal} options={[['raw', $t('fewest resources')], ['machines', $t('fewest machines')], ['power', $t('least power')]]}
+        onchange={() => { if (res) run(); }} /></div>
       <label class="tg" title={$t('With Power Shards up to 250 %: fewer machines, but disproportionately more power')}>{$t('Clock up to')}
         <select class="field sel" bind:value={maxClock} onchange={() => res && run()}>
           {#each [100, 150, 200, 250] as c}<option value={c}>{c} %{c > 100 ? ' (' + $t('{n} shards', { n: Math.ceil((c - 100) / 50) }) + ')' : ''}</option>{/each}
         </select></label>
       <label class="tg" title={$t('Somersloop in every machine: double output, four times the power')}><input type="checkbox" bind:checked={sloop} onchange={() => res && run()} /> Somersloops</label>
-      <span style="flex:1"></span>
       <span style="flex:1"></span>
       <button class="btn primary" onclick={run} disabled={busy}>{busy ? $t('Calculating …') : $t('Calculate')}</button>
     </div>
@@ -168,7 +167,7 @@
 
   {#if res}
     {#if !res.steps.length && res.surplus_used.length}
-      <div class="panel card note">{$t('Nothing to build: the factory already has enough surplus ({list}).', { list: res.surplus_used.map((u: any) => fmtNum(u.available) + '/min ' + $tn(u.item)).join(', ') })}
+      <div class="panel card note">{$t('Nothing to build: the factory already has enough surplus ({list}).', { list: res.surplus_used.map(u => fmtNum(u.available) + '/min ' + $tn(u.item)).join(', ') })}
         {$t('Untick “Use factory surplus” to plan a separate setup.')}</div>
     {/if}
     <div class="kpis">
@@ -181,7 +180,7 @@
 
     <div class="panel card chain">
       <div class="gh"><h2>{$t('Production chain')}</h2>
-        <div class="seg">{#each [['diagram', $t('Diagram')], ['tree', $t('Tree')]] as [k, l]}<button class:on={view === k} onclick={() => (view = k as any)}>{l}</button>{/each}</div>
+        <div class="seg"><Segmented bind:value={view} options={[['diagram', $t('Diagram')], ['tree', $t('Tree')]]} /></div>
       </div>
       {#if graph && view === 'diagram'}
         <div class="flow">
@@ -254,21 +253,21 @@
           </tbody>
         </table>
         {#if bpErr}<p class="err small">{bpErr}</p>{/if}
-        {#if res.steps.some((x: any) => x.bp)}<p class="muted small"><b>Blueprint ⤓</b> {$t('is experimental: it builds on the bundled templates “8x Constructor T5” and “10x Smelter T5”, sets recipe and clock speed, and leaves out surplus machines.')} {$t('Not yet tested in game — unzip it and put it in')} <code>SaveGames/blueprints/{$status?.save?.session || "<Session>"}/</code> {$t('(server), or test it locally.')}</p>{/if}
+        {#if res.steps.some(x => x.bp)}<p class="muted small"><b>Blueprint ⤓</b> {$t('is experimental: it builds on the bundled templates “8x Constructor T5” and “10x Smelter T5”, sets recipe and clock speed, and leaves out surplus machines.')} {$t('Not yet tested in game — unzip it and put it in')} <code>SaveGames/blueprints/{$status?.save?.session || "<Session>"}/</code> {$t('(server), or test it locally.')}</p>{/if}
         {#if Object.keys(allow).length}<p class="small">{$t('Restricted: {items}', { items: Object.keys(allow).map(x => $tn(x)).join(', ') })} <button class="lk inl" onclick={() => { allow = {}; run(); }}>{$t('allow all recipes again')}</button></p>{/if}
-        {#if res.byproducts.length}<p class="small muted">{$t('Byproducts: {list}', { list: res.byproducts.map((b: any) => fmtNum(b.rate) + ' ' + $tn(b.item)).join(', ') })}</p>{/if}
-        {#if res.surplus_used.length}<p class="small muted">{$t('From factory surplus: {list}', { list: res.surplus_used.map((b: any) => $t('{n} of {total}', { n: fmtNum(b.rate), total: fmtNum(b.available) }) + ' ' + $tn(b.item)).join(', ') })}</p>{/if}
+        {#if res.byproducts.length}<p class="small muted">{$t('Byproducts: {list}', { list: res.byproducts.map(b => fmtNum(b.rate) + ' ' + $tn(b.item)).join(', ') })}</p>{/if}
+        {#if res.surplus_used.length}<p class="small muted">{$t('From factory surplus: {list}', { list: res.surplus_used.map(b => $t('{n} of {total}', { n: fmtNum(b.rate), total: fmtNum(b.available) }) + ' ' + $tn(b.item)).join(', ') })}</p>{/if}
       </div>
 
       <div class="panel card">
         <h2>{$t('Free nodes')}</h2>
         <p class="muted small">{site ? $t('Sorted by purity and distance to the selected build site.') : $t('Sorted by purity and distance to the largest factory.')}
           {$t('Build site:')} <a class="lk inl" href="#/map?pick=site{site ? '&x=' + site.x + '&y=' + site.y + '&z=1.2' : ''}">{site ? site.x + ' / ' + site.y + ' m — ' + $t('change on the map') : $t('pick on the map')}</a>
-          {#if site}<button class="lk inl" onclick={() => { site = null; localStorage.removeItem('fgmap.site'); }}>{$t('reset')}</button>{/if}</p>
+          {#if site}<button class="lk inl" onclick={() => { site = null; localStorage.removeItem(KEYS.site); }}>{$t('reset')}</button>{/if}</p>
         {#each nodeHints as h}
           <h3>{$tn(h.item)} · {fmtNum(h.rate)}/min</h3>
           {#each h.list as { n, d }}
-            <button class="lk" onclick={() => toMap('node:' + n.id, n.pos[0], n.pos[1])}>{PUR[n.purity || ''] ? $t(PUR[n.purity || '']) : '?'} · {$t('{d} m away', { d: Math.round(d) })} · {n.pos[0]} / {n.pos[1]}</button>
+            <button class="lk" onclick={() => toMap('node:' + n.id, n.pos[0], n.pos[1])}>{purityLabel(n.purity)} · {$t('{d} m away', { d: Math.round(d) })} · {n.pos[0]} / {n.pos[1]}</button>
           {:else}<p class="muted small">{$t('No free node of this type.')}</p>{/each}
         {/each}
         <button class="btn" onclick={toPin} style="margin-top:12px">{$t('Save plan as map note')}</button>
@@ -294,8 +293,8 @@
   .gh { display: flex; align-items: center; gap: 16px; margin-bottom: 10px; }
   .gh h2 { margin: 0; }
   .gh .seg { display: inline-flex; }
-  .gh .seg button { background: var(--steel); border: 1px solid var(--seam); padding: 3px 12px; font-size: 13px; color: var(--text2); margin-right: -1px; }
-  .gh .seg button.on { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); }
+  .gh .seg :global(button) { background: var(--steel); border: 1px solid var(--seam); padding: 3px 12px; font-size: 13px; color: var(--text2); margin-right: -1px; }
+  .gh .seg :global(button.on) { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); }
   .flow { overflow: auto; max-height: 75vh; padding: 2px; }
   .edge { fill: none; opacity: .75; transition: opacity .12s; }
   .el { fill: var(--dim); font-size: 11px; paint-order: stroke; stroke: var(--plate); stroke-width: 3px; }
@@ -321,8 +320,8 @@
   .opts { gap: 10px 14px; }
   .ol { font-size: 13px; color: var(--text2); }
   .opts .seg { display: inline-flex; }
-  .opts .seg button { background: var(--steel); border: 1px solid var(--seam); padding: 4px 10px; font-size: 13px; color: var(--text2); margin-right: -1px; }
-  .opts .seg button.on { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); }
+  .opts .seg :global(button) { background: var(--steel); border: 1px solid var(--seam); padding: 4px 10px; font-size: 13px; color: var(--text2); margin-right: -1px; }
+  .opts .seg :global(button.on) { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); }
   .sel { width: auto; padding: 3px 6px; }
   .rpick { display: flex; flex-direction: column; gap: 2px; padding: 6px 0 4px 2px; font-size: 12.5px; }
   .rpick input { accent-color: var(--ficsit); }

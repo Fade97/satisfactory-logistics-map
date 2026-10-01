@@ -2,8 +2,9 @@
   // Detail card for every map object.
   import type { MapObj } from './mapview';
   import { live, stations, factory, flow } from './api';
-  import { C, MODE_LABEL, STATE_COLOR, machineColor, fmtNum, fmtMW, dur } from './fmt';
-  import type { Station } from './types';
+  import { C, MODE_LABEL, STATE_COLOR, machineColor, fmtNum, fmtMW, dur, purityLabel } from './fmt';
+  import type { Item, Machine, Station, Veh } from './types';
+  import { stationId, stationKey } from './scene';
   import { tn } from './names';
   import { t, tr, lx, locale } from './i18n';
 
@@ -13,8 +14,8 @@
   const d = $derived(o.data);
   let show3d = $state(false);
   /** Belts/pipes near the factory: each point at most 15 m from one of its machines, clipped outside */
-  function near(ms: any[]) {
-    const R = 15, cell = 30, grid = new Map<string, any[]>();
+  function near(ms: Machine[]) {
+    const R = 15, cell = 30, grid = new Map<string, Machine[]>();
     for (const m of ms) { const k = Math.floor(m.pos[0] / cell) + ',' + Math.floor(m.pos[1] / cell); if (!grid.has(k)) grid.set(k, []); grid.get(k)!.push(m); }
     const ok = (x: number, y: number) => {
       const gx = Math.floor(x / cell), gy = Math.floor(y / cell);
@@ -30,19 +31,18 @@
     }
     return out;
   }
+  // factory status (set in the pin editor) → i18n key
+  const FACTORY_STATUS: Record<string, string> = { building: 'under construction', buffer: 'buffer', decommissioned: 'decommissioned' };
   const PT: Record<string, string> = { freight: tr('Freight'), fluid: tr('Fluid'), empty: tr('empty') };
   const KIND: Record<string, string> = { collectible: tr('Collectible'), station: '', player: tr('Player'), train: tr('Train'), truck: tr('Vehicle'), machine: tr('Machine'),
     generator: tr('Generator'), node: tr('Resource nodes'), pin: tr('Note'), factory: tr('Factory') };
-  // Purity arrives in English from the backend; the values are shared i18n keys (i18n/de/parts.ts)
-  const PUR: Record<string, string> = { pure: 'pure', normal: 'normal', impure: 'impure' };
-
-  const liveSt = $derived(o.kind === 'station' ? $live?.stations?.[d.id.split('.').pop()] : null);
+  const liveSt = $derived(o.kind === 'station' ? $live?.stations?.[stationId(d)] : null);
   const vehName = (id: string) => $live?.trucks.find(t => t.id === id)?.name;
 
   // counterpart stations via a shared vehicle
   const links = $derived.by(() => {
     if (o.kind !== 'station' || d.kind !== 'truck' || !$stations) return [];
-    const mine = new Set((d.vehicles || []).map((v: any) => v.id));
+    const mine = new Set((d.vehicles || []).map((v: Veh) => v.id));
     return $stations.trucks.filter(s => s.id !== d.id && (s.vehicles || []).some(v => mine.has(v.id)))
       .map(s => ({ s, vs: (s.vehicles || []).filter(v => mine.has(v.id)) }));
   });
@@ -65,7 +65,6 @@
     return $factory.machines.filter(m => ids.has(m.id));
   });
   const stalled = $derived(members.filter(m => m.state === 'stopped' && m.block !== 'full'));
-  const key = (s: Station) => 'station:' + s.id.split('.').pop();
   const fillPct = (f: number | null | undefined) => f == null ? null : Math.round(f * 100);
 </script>
 
@@ -83,9 +82,9 @@
         <tbody>
         {#each d.platforms as p}
           <tr><td>{PT[p.type]}<div class="muted small">{p.mode ? $t(MODE_LABEL[p.mode]) : '—'}</div></td>
-            <td>{p.items.map((i: any) => $tn(i.item)).join(', ') || '—'}</td>
-            <td class="n">{p.items.map((i: any) => fmtNum(i.amount)).join(', ') || '—'}
-              {#if p.fill != null}<div class="bar mini"><i style="width:{p.fill * 100}%;background:{p.fill > .9 ? C.bad : '#c3bfb7'}"></i></div>{/if}</td></tr>
+            <td>{p.items.map((i: Item) => $tn(i.item)).join(', ') || '—'}</td>
+            <td class="n">{p.items.map((i: Item) => fmtNum(i.amount)).join(', ') || '—'}
+              {#if p.fill != null}<div class="bar mini"><i style="width:{p.fill * 100}%;background:{p.fill > .9 ? C.bad : C.neutral}"></i></div>{/if}</td></tr>
         {/each}
         </tbody>
       </table>
@@ -100,7 +99,7 @@
       {#if d.fill != null}<div class="fill"><div class="bar"><i style="width:{d.fill * 100}%;background:{d.fill > .9 ? C.bad : d.fill < .1 ? C.warn : 'var(--text2)'}"></i></div><span class="num">{$t('{n} % full', { n: fillPct(d.fill) })}</span></div>{/if}
       <div class="sec"><h3>{$t('Connected by truck')}</h3>
         {#each links as l}
-          <button class="lk" onclick={() => onpick(key(l.s))}><span class="dot" style="background:{C[l.s.mode]}"></span><b>{l.s.name}</b></button>
+          <button class="lk" onclick={() => onpick(stationKey(l.s))}><span class="dot" style="background:{C[l.s.mode]}"></span><b>{l.s.name}</b></button>
           {#each l.vs as v}
             <div class="via">{vehName(v.id) || v.type} · {$t('round trip {t}', { t: dur(v.round / 60) })}{#if v.per_min} · {$t('up to {n}/min', { n: fmtNum(v.per_min) })}{/if}
               {#if v.last > 3 * Math.max(v.round, 60)}<span class="warn"> · {$t('not seen for {t}', { t: dur(v.last / 60) })}</span>{/if}</div>
@@ -110,7 +109,7 @@
     {/if}
     {#if sameItem.length}
       <div class="sec"><h3>{links.length ? $t('Same item, not connected') : $t('{item}: counterparts', { item: $tn(d.items[0].item) })}</h3>
-        {#each sameItem.slice(0, 8) as s}<button class="lk" onclick={() => onpick(key(s))}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>{/each}
+        {#each sameItem.slice(0, 8) as s}<button class="lk" onclick={() => onpick(stationKey(s))}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>{/each}
       </div>
     {/if}
 
@@ -140,14 +139,14 @@
     {#if onfollow}<button class="btn" class:on={following} onclick={onfollow}>{following ? $t('Stop following') : $t('Follow this vehicle')}</button>{/if}
     {#if o.kind === 'truck'}
       <div class="sec"><h3>{$t('Route · {n} stations', { n: route.length })}</h3>
-        {#each route as s}<button class="lk" onclick={() => onpick(key(s))}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>
+        {#each route as s}<button class="lk" onclick={() => onpick(stationKey(s))}><span class="dot" style="background:{C[s.mode]}"></span>{s.name}</button>
         {:else}<div class="muted small">{$t('No station knows this vehicle.')}</div>{/each}</div>
     {/if}
 
   {:else if o.kind === 'machine'}
     <div class="row"><span class="tag"><span class="dot" style="background:{machineColor(d)}"></span>{d.state === 'stopped' && d.block === 'full' ? $t('waiting (output full)') : $t(d.state)} · {d.pct} %</span>
       <span class="tag">{$tn(d.name)}</span>{#if d.clock !== 1}<span class="tag">{$t('Clock {n} %', { n: Math.round(d.clock * 100) })}</span>{/if}
-      {#if d.alt}<span class="tag">{$t('Alternate recipe')}</span>{/if}{#if d.purity}<span class="tag">{$t('{p} node', { p: PUR[d.purity] ? $t(PUR[d.purity]) : d.purity })}</span>{/if}</div>
+      {#if d.alt}<span class="tag">{$t('Alternate recipe')}</span>{/if}{#if d.purity}<span class="tag">{$t('{p} node', { p: purityLabel(d.purity, d.purity) })}</span>{/if}</div>
     {#if d.why}<p class:why={d.block !== 'full'} class:muted={d.block === 'full'}>{$lx(d.why)}{d.block === 'full' ? ' — ' + $t('buffer, no action needed') : ''}</p>{/if}
     <table class="t"><thead><tr><th>{$t('Item')}</th><th class="n">{$t('Actual')}</th><th class="n">{$t('Target /min')}</th></tr></thead><tbody>
       {#each d.out as p}<tr><td>{$tn(p.item)}</td><td class="n">{fmtNum(p.rate)}</td><td class="n">{fmtNum(p.max)}</td></tr>{/each}
@@ -161,16 +160,16 @@
     {#if d.fuel_minutes != null}<p>{$t('Fuel in the building lasts')} <b>{dur(d.fuel_minutes)}</b></p>{/if}
 
   {:else if o.kind === 'node'}
-    <div class="row"><span class="tag">{$tn(d.item) || '?'}</span><span class="tag">{PUR[d.purity] ? $t(PUR[d.purity]) : $t('Purity unknown')}</span>
+    <div class="row"><span class="tag">{$tn(d.item) || '?'}</span><span class="tag">{purityLabel(d.purity, $t('Purity unknown'))}</span>
       <span class="tag">{d.used ? $t('occupied') : $t('free')}</span></div>
     {#if d.used}<p>{$tn(d.extractor)} · {fmtNum(d.rate)} /min</p>{/if}
 
   {:else if o.kind === 'factory'}
     <div class="row"><span class="tag">{$t('{n} machines', { n: d.n })}</span><span class="tag">{fmtMW(d.power)}</span>
       {#if d.renamed}<span class="tag" title={$t('Automatic name: {name}', { name: $lx(d.auto) })}>{$t('renamed')}</span>{/if}
-      {#if d.status && d.status !== 'active'}<span class="tag">{$t(({ building: 'under construction', buffer: 'buffer', decommissioned: 'decommissioned' } as any)[d.status] || d.status)}</span>{/if}</div>
+      {#if d.status && d.status !== 'active'}<span class="tag">{$t(FACTORY_STATUS[d.status] || d.status)}</span>{/if}</div>
     <div class="states">{#each Object.entries(d.states).filter(([s]) => s !== 'stopped') as [s, n]}<span><span class="dot" style="background:{STATE_COLOR[s]}"></span>{n} {$t(s)}</span>{/each}
-      {#if d.full}<span><span class="dot" style="background:#8a857c"></span>{$t('{n} waiting (output full)', { n: d.full })}</span>{/if}
+      {#if d.full}<span><span class="dot" style="background:{C.full}"></span>{$t('{n} waiting (output full)', { n: d.full })}</span>{/if}
       {#if d.starved}<span><span class="dot" style="background:{C.bad}"></span>{$t('{n} missing input', { n: d.starved })}</span>{/if}</div>
     <div class="grid">
       <div><h3>{$t('Supplies')}</h3>{#each d.out as p}<div class="io"><span>{$tn(p.item)}</span><span class="num">{fmtNum(p.rate)}</span></div>{:else}<div class="muted small">{$t('nothing net')}</div>{/each}</div>

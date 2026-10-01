@@ -1,21 +1,25 @@
 <script lang="ts">
   // Create/edit a note or rename a factory — both require the shared password.
+  import { untrack } from 'svelte';
   import { password, author, post, checkPassword } from './api';
+  import { C } from './fmt';
   import { t, tr, lx, lxr } from './i18n';
 
   let { pin, onclose }: { pin: any; onclose: (saved: boolean) => void } = $props();
   const CATS: [string, string, string][] = [
-    ['planned', tr('Planned'), '#f59a23'], ['problem', tr('Problem'), '#e5484d'], ['resource', tr('Resource'), '#4cc38a'],
-    ['meetup', tr('Meeting point'), '#5b9bd5'], ['note', tr('Note'), '#c3bfb7'],
+    ['planned', tr('Planned'), C.accent], ['problem', tr('Problem'), C.bad], ['resource', tr('Resource'), C.ok],
+    ['meetup', tr('Meeting point'), C.unload], ['note', tr('Note'), C.neutral],
   ];
-  const isFactory = !!pin.factory;
-  let text = $state(isFactory ? pin.factory.name : pin.text || '');
-  let fstatus = $state(isFactory ? pin.factory.status || 'active' : 'active');
+  // The form fields start from the pin the editor was opened with (later prop changes don't reset the input)
+  const initial = untrack(() => pin);
+  const isFactory = !!initial.factory;
+  let text = $state(isFactory ? initial.factory.name : initial.text || '');
+  let fstatus = $state(isFactory ? initial.factory.status || 'active' : 'active');
   const FST: [string, string, string][] = [
     ['active', tr('Active'), tr('Warns about missing input')], ['building', tr('Under construction'), tr('No warnings')],
     ['buffer', tr('Buffer/stock'), tr('Standstill is intended')], ['decommissioned', tr('Decommissioned'), tr('No warnings')],
   ];
-  let cat = $state(pin.cat || 'planned');
+  let cat = $state(initial.cat || 'planned');
   let pw = $state($password);
   let name = $state($author);
   let err = $state(''), busy = $state(false);

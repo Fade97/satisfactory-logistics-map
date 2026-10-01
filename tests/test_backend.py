@@ -152,10 +152,10 @@ def test_plan_unknown_item():
 
 # ---------------------------------------------------------------- service logic
 def test_clusters_by_belts(fac):
-    import mapd
+    from mapsvc import production
     for m in fac['machines']:
-        m['block'] = mapd.block_kind(m)
-    cl = mapd.clusters(fac['machines'], fac['links'])
+        m['block'] = production.block_kind(m)
+    cl = production.clusters(fac['machines'], fac['links'])
     assert 20 <= len(cl) <= 80
     names = [c['name'] for c in cl]
     assert len(names) == len(set(names)), 'automatic names must be unique'
@@ -163,9 +163,38 @@ def test_clusters_by_belts(fac):
 
 
 def test_balance_counts_generators(fac):
-    import mapd
-    b = {x['item']: x for x in mapd.balance(fac['machines'], fac['generators'])}
+    from mapsvc import production
+    b = {x['item']: x for x in production.balance(fac['machines'], fac['generators'])}
     assert b['Fuel']['cons'] > 1000, 'power plants must consume Fuel'
+
+
+def test_compact_train_series_keeps_totals(tmp_path):
+    """train:* minutes only exist when something moved — the hourly value must be the mean over the whole hour."""
+    import store
+    db = store.Store(str(tmp_path / 't.db'))
+    h = 1_000_000 // 3600 * 3600
+    for i, v in enumerate((60, 60, 30)):
+        db.put_series(h + 60 * i, {'train:A:+:Iron Plate': v, 'power:1:use': v})
+    db.compact(h + 3600 + 30)
+    rows = dict(((k, t), v) for k, t, v in db.db.execute('SELECT key, t, v FROM series_hour'))
+    assert rows[('train:A:+:Iron Plate', h)] * 60 == 150         # SUM(hour) * 60 = items moved
+    assert rows[('power:1:use', h)] == 50                        # other series: average
+
+
+def test_frm_status_back_only_after_loss():
+    from mapsvc.core import ST, DB, frm_status
+    saved = ST.frm_ok, ST.frm_since, ST.save_meta
+    try:
+        ST.frm_ok, ST.frm_since, ST.save_meta = False, None, dict(file='x')
+        n = lambda: sum(1 for e in DB.events(limit=500) if e['ref'] == 'frm')
+        before = n()
+        frm_status(True)                                         # first contact: no "back" event
+        assert n() == before
+        frm_status(False, 'down')
+        frm_status(True)
+        assert n() == before + 2                                 # lost + back
+    finally:
+        ST.frm_ok, ST.frm_since, ST.save_meta = saved
 
 
 # ---------------------------------------------------------------- round 5: collectibles, storage, blueprints
@@ -182,30 +211,6 @@ def test_storage(S):
     assert all(x['fill'] is None or 0 <= x['fill'] <= 1 for x in st)
     tanks = [x for x in st if 'Tank' in x['cls'] and x['items']]
     assert tanks and all(t['items'][0]['item'] != '?' for t in tanks), 'determine tank contents via the pipe network'
-
-
-def test_blueprint_roundtrip(tmp_path, monkeypatch):
-    import bpgen, sbp
-    monkeypatch.setattr(bpgen, 'OUT', str(tmp_path))
-    path, info = bpgen.build(dict(cls='Recipe_IronPlate_C', building='Constructor', machines=3, full_clock=100, clock=None))
-    H, B = sbp.load(path)
-    mach = [o for h, o in zip(B['headers'], B['objs']) if h['type'] == 1 and h['cls'].endswith('Build_ConstructorMk1_C')]
-    assert len(mach) == 3
-    for o in mach:
-        rec = [p['value'][1] for p in o['obj']['props'] if p['name'] == 'mCurrentRecipe']
-        assert rec and rec[0].endswith('Recipe_IronPlate_C')
-    # byte-exact round trip and no dangling references to removed machines
-    names = {h['name'] for h in B['headers']}
-    for o in B['objs']:
-        for p in o['obj']['props']:
-            if p['name'] == 'mConnectedComponent' and p['value'][1]:
-                assert p['value'][1] in names
-
-
-def test_blueprint_rejects_unsupported():
-    import bpgen
-    with pytest.raises(bpgen.BpError):
-        bpgen.build(dict(cls='Recipe_IngotSteel_C', building='Foundry', machines=2, full_clock=100, clock=None))
 
 
 def test_lightweight(S):

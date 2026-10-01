@@ -2,7 +2,7 @@
 import threading
 
 from .core import ST
-from .factory import balance
+from .production import balance
 
 
 # ================================================================ production planner
@@ -11,7 +11,7 @@ PLAN_LOCK = threading.Semaphore(2)
 
 def plan(b):
     """POST /api/plan {targets:[{item,rate}], exclude:[recipe], use_surplus:bool, only_unlocked:bool}"""
-    import planner
+    import planner          # lazy: pulls in numpy/scipy, only needed when someone plans
     try:
         targets = {planner.item_key(t['item']): float(t['rate']) for t in (b.get('targets') or [])[:8]
                    if 0 < float(t['rate']) <= 100000}
@@ -19,7 +19,7 @@ def plan(b):
         return dict(ok=False, error='Unknown item or invalid amount')
     if not targets:
         return dict(ok=False, error='Add at least one target')
-    rec = getattr(ST, 'unlocked', None) or set()
+    rec = ST.unlocked
     if not b.get('only_unlocked', True):
         rec = {r for r, R in planner.RECIPES.items() if R['inMachine'] and R['producedIn']}
     surplus = None

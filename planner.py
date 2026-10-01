@@ -12,10 +12,8 @@ import collections, math
 import numpy as np
 from scipy.optimize import linprog
 
-import factory
-
-GD = factory.GD
-ITEMS, RECIPES, BUILDINGS = GD['items'], GD['recipes'], GD['buildings']
+import gamedata
+from gamedata import GD, ITEMS, RECIPES, BUILDINGS
 
 # world supply per raw resource (/min, default values of the community planners) → weight rare resources higher
 WORLD = {'Desc_OreIron_C': 92100, 'Desc_OreCopper_C': 36900, 'Desc_Stone_C': 69300, 'Desc_Coal_C': 42300,
@@ -51,7 +49,7 @@ def unlocked(S):
 def recipe_list(rec):
     """For the website: producible items and the unlocked recipes per item."""
     items = collections.defaultdict(list)
-    for r in rec:
+    for r in sorted(rec, key=lambda r: (RECIPES[r]['alternate'], RECIPES[r]['name'])):   # stable: standard first, then by name
         R = RECIPES[r]
         for p in R['products']:
             items[p['item']].append(dict(cls=r, name=R['name'], alt=R['alternate']))
@@ -70,7 +68,7 @@ def item_key(name_or_key):
 
 def _power(meta, clock):
     """MW of a machine at clock speed clock (1.0 = 100 %), exponent from the game data (1.32)."""
-    return meta.get('powerConsumption', 0) * clock ** meta.get('powerConsumptionExponent', 1.321929)
+    return meta.get('powerConsumption', 0) * clock ** meta.get('powerConsumptionExponent', gamedata.POWER_EXPONENT)
 
 
 def solve(targets, recipes, surplus=None, exclude=(), goal='raw', max_clock=1.0, sloop=False):
@@ -81,7 +79,7 @@ def solve(targets, recipes, surplus=None, exclude=(), goal='raw', max_clock=1.0,
     sloop:     Somersloops in all machines: double output for the same input, power ×4 (game values 1.0)
     """
     rs = [r for r in sorted(recipes) if r not in exclude and not RECIPES[r].get('forBuilding')]
-    rs = [r for r in rs if 'Desc_' + 'Converter' not in RECIPES[r]['producedIn'][0]]   # avoid converter loops
+    rs = [r for r in rs if 'Desc_Converter' not in RECIPES[r]['producedIn'][0]]   # avoid converter loops
     items = sorted({x['item'] for r in rs for x in RECIPES[r]['ingredients'] + RECIPES[r]['products']} | set(targets))
     ix = {k: i for i, k in enumerate(items)}
     raw = [k for k in items if k in RAW]
@@ -156,7 +154,7 @@ def solve(targets, recipes, surplus=None, exclude=(), goal='raw', max_clock=1.0,
 
 
 if __name__ == '__main__':
-    import sys, json
+    import sys, json, factory
     S = factory.Save('saves/latest.sav')
     rec = unlocked(S)
     what = sys.argv[1] if len(sys.argv) > 1 else 'Steel Beam'

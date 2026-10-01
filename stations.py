@@ -1,86 +1,26 @@
 """Reads truck/train stations from a Satisfactory .sav and returns structured records."""
-import re, struct
 import sbp, sav
+from gamedata import item_name, FLUID_NAMES
 
 # ---------- small helpers ----------
+# FText history types (only those used in the save)
+HISTORY_BASE = 0                       # namespace, key, source string
+HISTORY_STRING_TABLE = 11              # string table entry = unchanged default name
+HISTORY_NONE = 0xff                    # optional culture-invariant string
+
 def text_prop(b):
-    """FText from the raw bytes of a TextProperty (only the history types used in the save)."""
+    """FText from the raw bytes of a TextProperty: int32 flags, uint8 history type, payload."""
     if not b: return ''
-    r = sbp.R(b); r.i32()                      # flags
+    r = sbp.Reader(b); r.i32()                 # flags
     ht = r.u8()
-    if ht == 0xff:                             # None history: optional invariant string
-        if r.i32():
-            return r.s()
-        return ''
-    if ht == 0:                                # Base: namespace, key, source string
+    if ht == HISTORY_NONE:
+        return r.s() if r.i32() else ''
+    if ht == HISTORY_BASE:
         r.s(); r.s(); return r.s()
-    if ht == 11:                               # StringTableEntry = unchanged default name
-        return ''
-    return ''
-
-ITEM_NAMES = {
-    'Desc_OreIron': 'Iron Ore', 'Desc_OreCopper': 'Copper Ore', 'Desc_OreGold': 'Caterium Ore',
-    'Desc_OreBauxite': 'Bauxite', 'Desc_OreUranium': 'Uranium', 'Desc_Stone': 'Limestone',
-    'Desc_Coal': 'Coal', 'Desc_RawQuartz': 'Raw Quartz', 'Desc_Sulfur': 'Sulfur',
-    'Desc_LiquidOil': 'Crude Oil', 'Desc_Water': 'Water', 'Desc_LiquidFuel': 'Fuel',
-    'Desc_LiquidTurboFuel': 'Turbofuel', 'Desc_LiquidBiofuel': 'Liquid Biofuel',
-    'Desc_HeavyOilResidue': 'Heavy Oil Residue', 'Desc_AluminaSolution': 'Alumina Solution',
-    'Desc_SulfuricAcid': 'Sulfuric Acid', 'Desc_NitricAcid': 'Nitric Acid',
-    'Desc_NitrogenGas': 'Nitrogen Gas', 'Desc_Rotor': 'Rotor', 'Desc_Cable': 'Cable',
-    'Desc_Wire': 'Wire', 'Desc_IronPlateReinforced': 'Reinforced Iron Plate',
-    'Desc_IronPlate': 'Iron Plate', 'Desc_IronRod': 'Iron Rod', 'Desc_IronScrew': 'Screw',
-    'Desc_SteelPlate': 'Steel Beam', 'Desc_SteelPipe': 'Steel Pipe',
-    'Desc_SteelPlateReinforced': 'Encased Industrial Beam', 'Desc_Cement': 'Concrete',
-    'Desc_CopperSheet': 'Copper Sheet', 'Desc_CopperIngot': 'Copper Ingot',
-    'Desc_IronIngot': 'Iron Ingot', 'Desc_SteelIngot': 'Steel Ingot',
-    'Desc_GoldIngot': 'Caterium Ingot', 'Desc_AluminumIngot': 'Aluminum Ingot',
-    'Desc_AluminumPlate': 'Alclad Aluminum Sheet', 'Desc_AluminumCasing': 'Aluminum Casing',
-    'Desc_AluminumPlateReinforced': 'Heat Sink', 'Desc_HighSpeedWire': 'Quickwire',
-    'Desc_CircuitBoard': 'Circuit Board', 'Desc_CircuitBoardHighSpeed': 'AI Limiter',
-    'Desc_Computer': 'Computer', 'Desc_ComputerSuper': 'Supercomputer',
-    'Desc_ModularFrame': 'Modular Frame', 'Desc_ModularFrameHeavy': 'Heavy Modular Frame',
-    'Desc_ModularFrameLightweight': 'Radio Control Unit', 'Desc_Motor': 'Motor',
-    'Desc_MotorLightweight': 'Turbo Motor', 'Desc_Stator': 'Stator',
-    'Desc_Plastic': 'Plastic', 'Desc_Rubber': 'Rubber', 'Desc_PolymerResin': 'Polymer Resin',
-    'Desc_PetroleumCoke': 'Petroleum Coke', 'Desc_CompactedCoal': 'Compacted Coal',
-    'Desc_Silica': 'Silica', 'Desc_QuartzCrystal': 'Quartz Crystal',
-    'Desc_Fabric': 'Fabric', 'Desc_Biofuel': 'Solid Biofuel', 'Desc_Gunpowder': 'Black Powder',
-    'Desc_SpaceElevatorPart_1': 'Smart Plating', 'Desc_SpaceElevatorPart_2': 'Versatile Framework',
-    'Desc_SpaceElevatorPart_3': 'Automated Wiring', 'Desc_SpaceElevatorPart_4': 'Modular Engine',
-    'Desc_SpaceElevatorPart_5': 'Adaptive Control Unit', 'Desc_SpaceElevatorPart_6': 'Magnetic Field Generator',
-    'Desc_SpaceElevatorPart_7': 'Assembly Director System', 'Desc_SpaceElevatorPart_8': 'Thermal Propulsion Rocket',
-    'Desc_SpaceElevatorPart_9': 'Nuclear Pasta', 'Desc_CrystalOscillator': 'Crystal Oscillator',
-    'Desc_HighSpeedConnector': 'High-Speed Connector', 'Desc_ElectromagneticControlRod': 'Electromagnetic Control Rod',
-    'Desc_Battery': 'Battery', 'Desc_SAMIngot': 'Reanimated SAM', 'Desc_SAM': 'SAM',
-    'Desc_PackagedOil': 'Packaged Oil', 'Desc_PackagedOilResidue': 'Packaged Heavy Oil Residue',
-    'Desc_Fuel': 'Packaged Fuel', 'Desc_TurboFuel': 'Packaged Turbofuel',
-    'Desc_PackagedWater': 'Packaged Water', 'Desc_PackagedBiofuel': 'Packaged Liquid Biofuel',
-    'Desc_PackagedAlumina': 'Packaged Alumina Solution', 'Desc_PackagedSulfuricAcid': 'Packaged Sulfuric Acid',
-    'Desc_PackagedNitricAcid': 'Packaged Nitric Acid', 'Desc_PackagedNitrogenGas': 'Packaged Nitrogen Gas',
-    'Desc_FluidCanister': 'Empty Canister', 'Desc_GasTank': 'Empty Fluid Tank',
-    'Desc_Filter': 'Gas Filter', 'Desc_HazmatFilter': 'Iodine-Infused Filter',
-    'Desc_NuclearFuelRod': 'Uranium Fuel Rod', 'Desc_NuclearWaste': 'Uranium Waste',
-    'Desc_UraniumCell': 'Encased Uranium Cell', 'Desc_NonFissibleUranium': 'Non-Fissile Uranium',
-    'Desc_PlutoniumCell': 'Encased Plutonium Cell', 'Desc_PlutoniumPellet': 'Plutonium Pellet',
-    'Desc_PlutoniumFuelRod': 'Plutonium Fuel Rod', 'Desc_PlutoniumWaste': 'Plutonium Waste',
-    'Desc_CoolingSystem': 'Cooling System', 'Desc_MotorTurbo': 'Turbo Motor',
-    'Desc_PressureConversionCube': 'Pressure Conversion Cube', 'Desc_CopperDust': 'Copper Powder',
-    'Desc_AluminumScrap': 'Aluminum Scrap', 'Desc_GoldenNut': 'Golden Nut Statue',
-}
-FLUIDS = {'Crude Oil','Water','Fuel','Turbofuel','Liquid Biofuel','Heavy Oil Residue',
-          'Alumina Solution','Sulfuric Acid','Nitric Acid','Nitrogen Gas','Rocket Fuel','Ionized Fuel'}
-
-def item_name(path):
-    """/Game/.../Desc_Wire.Desc_Wire_C -> 'Wire'"""
-    if not path: return None
-    key = path.split('.')[-1]
-    key = key[:-2] if key.endswith('_C') else key
-    if key in ITEM_NAMES: return ITEM_NAMES[key]
-    base = re.sub(r'^(Desc_|BP_|Build_)', '', key)
-    return re.sub(r'(?<=[a-z0-9])(?=[A-Z])', ' ', base)
+    return ''                                  # HISTORY_STRING_TABLE and others: no user text
 
 def props(ob):
-    return {p['name']: p['value'] for p in ob['props']}
+    return {p['name']: p['value'] for p in ob.get('props', [])}   # unparseable objects: {err, raw}
 
 def inventory(idx, comp_path):
     """List of (item, amount) from an FGInventoryComponent (fluids in m3)."""
@@ -94,7 +34,7 @@ def inventory(idx, comp_path):
         n = d.get('NumItems', 0)
         if it and n:
             name = item_name(it)
-            if name in FLUIDS: n = round(n / 1000.0, 1)   # fluid stacks count in litres
+            if name in FLUID_NAMES: n = round(n / 1000.0, 1)   # fluid stacks count in litres
             out[name] = out.get(name, 0) + n
     return sorted(out.items(), key=lambda kv: -kv[1])
 
@@ -140,7 +80,7 @@ def extract(path, idx=None):
     for n, c in cls.items():
         if c != 'FGDockingStationIdentifier': continue
         d = props(sav.obj(idx, n)[1])
-        st = d['mStation'][1]
+        st = d.get('mStation', ['', ''])[1]
         if st not in idx: continue
         sd = props(sav.obj(idx, st)[1])
         inv = inventory(idx, comp(idx, st, 'inventory'))
@@ -183,7 +123,7 @@ def extract(path, idx=None):
     for n, c in cls.items():
         if c != 'FGTrainStationIdentifier': continue
         d = props(sav.obj(idx, n)[1])
-        st = d['mStation'][1]
+        st = d.get('mStation', ['', ''])[1]
         if st not in idx: continue
         plats = []
         for p in platform_chain(st):

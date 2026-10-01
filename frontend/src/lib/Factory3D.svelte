@@ -5,9 +5,10 @@
   import * as THREE from 'three';
   import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
   import type { Machine } from './types';
-  import { machineColor } from './fmt';
+  import { machineColor, C, MOBILE_QUERY } from './fmt';
   import { t, tr, lx } from './i18n';
   import { tn } from './names';
+  import { portal } from './actions';
 
   let { machines, flow = [], onclose, title = '' }: { machines: Machine[]; flow?: number[][][]; onclose: () => void; title?: string } = $props();
 
@@ -20,17 +21,17 @@
     Build_FrackingExtractor_C: [4, 4, 5], Build_HadronCollider_C: [24, 38, 32], Build_QuantumEncoder_C: [22, 48, 18],
     Build_Converter_C: [16, 16, 16],
   };
-  /** Attach to <body>: the detail card (.panel) has a clip-path — a fixed fullscreen inside it would be clipped. */
-  function portal(node: HTMLElement) { document.body.appendChild(node); return { destroy() { node.remove(); } }; }
+  // Attached to <body> (use:portal): the detail card (.panel) has a clip-path — a fixed fullscreen inside it would be clipped.
   let host: HTMLDivElement, tip = $state<{ x: number; y: number; m: Machine } | null>(null);
   let failed = $state('');
   let renderer: THREE.WebGLRenderer, raf = 0, ro: ResizeObserver;
+  let scene: THREE.Scene | null = null, ctl: OrbitControls | null = null;
 
   onMount(() => {
-    const scene = new THREE.Scene();
-    scene.background = new THREE.Color('#16171a');
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(C.mapBg);
     const cam = new THREE.PerspectiveCamera(45, 1, 1, 20000);
-    const mobile = matchMedia('(max-width: 760px), (pointer: coarse)').matches;
+    const mobile = matchMedia(MOBILE_QUERY + ', (pointer: coarse)').matches;
     try {
       renderer = new THREE.WebGLRenderer({ antialias: !mobile, powerPreference: 'low-power' });
     } catch (e) {
@@ -61,7 +62,7 @@
       const mat = new THREE.MeshStandardMaterial({ roughness: .75, metalness: .15 });
       const mesh = new THREE.InstancedMesh(geo, mat, list.length);
       list.forEach((m, i) => {
-        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -((m as any).yaw || 0) * Math.PI / 180);
+        q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), -(m.yaw || 0) * Math.PI / 180);
         mtx.compose(P(m.pos[0], m.pos[1], m.z ?? 0), q, new THREE.Vector3(1, 1, 1));
         mesh.setMatrixAt(i, mtx);
         mesh.setColorAt(i, col.set(machineColor(m)));
@@ -74,8 +75,9 @@
         mesh.getMatrixAt(i, mtx);
         for (let j = 0; j < ep.count; j++) { v.fromBufferAttribute(ep, j).applyMatrix4(mtx); all.set([v.x, v.y, v.z], (i * ep.count + j) * 3); }
       });
+      eg.dispose();                                   // only needed for the vertex positions
       const eg2 = new THREE.BufferGeometry(); eg2.setAttribute('position', new THREE.BufferAttribute(all, 3));
-      scene.add(new THREE.LineSegments(eg2, new THREE.LineBasicMaterial({ color: '#0c0d0e', transparent: true, opacity: .5 })));
+      scene.add(new THREE.LineSegments(eg2, new THREE.LineBasicMaterial({ color: C.ring, transparent: true, opacity: .5 })));
     }
     // Belts/pipes (2D) at the floor height of the nearest machine
     const nearZ = (x: number, y: number) => {
@@ -95,7 +97,7 @@
     const grid = new THREE.GridHelper(Math.ceil(span * 1.4 / 8) * 8, Math.ceil(span * 1.4 / 8), '#3a3d41', '#26282b');
     scene.add(grid);
 
-    const ctl = new OrbitControls(cam, renderer.domElement);
+    ctl = new OrbitControls(cam, renderer.domElement);
     ctl.target.set((qq(xs, .05) + qq(xs, .95)) / 2, 10, (qq(ys, .05) + qq(ys, .95)) / 2); ctl.enableDamping = true; ctl.maxPolarAngle = Math.PI * .49;
     // Distance from the field of view: the factory (span) must fit the NARROWER view direction — in portrait
     // that is the width, whose angle follows from vFOV × aspect ratio
@@ -104,7 +106,7 @@
       const dist = (span * 0.75) / Math.tan(Math.min(vf, hf) / 2);
       const dir = new THREE.Vector3(0.55, 0.6, 0.6).normalize();
       cam.position.copy(dir.multiplyScalar(dist)).add(ctl.target);
-      ctl.update();
+      ctl!.update();
     };
     let framed = false;
     const resize = () => {
@@ -129,12 +131,27 @@
       tip = hit ? { x: e.clientX - r.left, y: e.clientY - r.top, m: hit.m } : null;
     };
     renderer.domElement.addEventListener('pointermove', e => { if (e.pointerType === 'mouse') pick(e); });
-    const loop = () => { ctl.update(); renderer.render(scene, cam); raf = requestAnimationFrame(loop); };
+    const loop = () => { ctl!.update(); renderer.render(scene!, cam); raf = requestAnimationFrame(loop); };
     loop();
     addEventListener('keydown', esc);
   });
   const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') onclose(); };
-  onDestroy(() => { cancelAnimationFrame(raf); ro?.disconnect(); renderer?.dispose(); removeEventListener('keydown', esc); });
+  /** Free GPU memory: geometries and materials of all scene objects (shared ones are disposed once) */
+  function disposeScene(s: THREE.Scene) {
+    const done = new Set<{ dispose(): void }>();
+    s.traverse(o => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) done.add(m.geometry);
+      for (const mat of [m.material ?? []].flat()) done.add(mat);
+      if (o instanceof THREE.InstancedMesh) o.dispose();
+    });
+    done.forEach(x => x.dispose());
+  }
+  onDestroy(() => {
+    cancelAnimationFrame(raf); ro?.disconnect(); ctl?.dispose();
+    if (scene) disposeScene(scene);
+    renderer?.dispose(); removeEventListener('keydown', esc);
+  });
 </script>
 
 <div class="wrap f3d" use:portal role="dialog" aria-modal="true" aria-label={$t('3D view')}>

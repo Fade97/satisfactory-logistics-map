@@ -5,22 +5,42 @@
      data change; when panning, the finished image is just blitted with an offset.
    - dynamic: vehicles, players, selection, labels — every frame in which something moves.
    Hit testing is done in code, not via the DOM. */
+import type { DetailLayer } from './types';
+import { C } from './fmt';
+
+export const MIN_ZOOM = 0.02, MAX_ZOOM = 30;
+export const clampZoom = (k: number) => Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, k));
+/** Duration of a vehicle/player glide to the next polled position */
+export const GLIDE_MS = 4800;
 
 export interface MapObj {
   kind: string; key: string; x: number; y: number; r: number; label?: string; color: string; ring?: string;
   shape: 'circle' | 'square' | 'diamond' | 'tri' | 'pin'; prio: number; minK?: number; data: any; layer: string;
-  tx?: number; ty?: number; sx?: number; sy?: number; t0?: number; fill?: number | null; dim?: boolean; z?: number;
+  fill?: number | null; dim?: boolean; z?: number;
+  /** Glide: from → to in world coordinates, started at glideStart (performance.now()); 0 = arrived */
+  fromX?: number; fromY?: number; toX?: number; toY?: number; glideStart?: number;
 }
+/** Factory cluster outline (world box [x0, y0, x1, y1]) */
+export interface FactoryBox { box: number[]; color: string; layer: string }
 export interface Lines { key: string; layer: string; color: string; width: number; alpha: number; paths: number[][][]; minK?: number }
 export interface Segs { key: string; layer: string; width: number; alpha: number; segs: number[][]; color: (s: number[]) => string }
 export interface Overlay { key: string; layer: string; draw: (ctx: CanvasRenderingContext2D, v: MapView) => void }
+
+/** Let objects that already exist in `prev` glide from their old position to the new one. */
+export function glideFrom(objs: MapObj[], prev: MapObj[], start = performance.now()) {
+  const old = new Map(prev.map(o => [o.key, o]));
+  for (const o of objs) {
+    const p = old.get(o.key);
+    if (p) { o.fromX = p.x; o.fromY = p.y; o.toX = o.x; o.toY = o.y; o.x = p.x; o.y = p.y; o.glideStart = start; }
+  }
+}
 
 export class MapView {
   cv: HTMLCanvasElement; ctx: CanvasRenderingContext2D;
   st: HTMLCanvasElement; sctx: CanvasRenderingContext2D;
   k = 0.4; dx = 0; dy = 0; w = 0; h = 0; dpr = 1;
   img: HTMLImageElement | null = null; box = { x: 0, y: 0, w: 1, h: 1 };
-  objs: MapObj[] = []; lines: Lines[] = []; segs: Segs[] = []; overlays: Overlay[] = []; boxes: any[] = [];
+  objs: MapObj[] = []; lines: Lines[] = []; segs: Segs[] = []; overlays: Overlay[] = []; boxes: FactoryBox[] = [];
   layers: Record<string, boolean> = {};
   hidden = new Set<string>();       // filter: keys of hidden objects
   /** Item flow: highlighted objects (rest dimmed) + polylines of the item, null = off */
@@ -31,18 +51,19 @@ export class MapView {
   followKey: string | null = null; followOff = { x: 0, y: 0 };
   links: [MapObj, MapObj][] = [];
   labels = true; imgAlpha = 0.85;
-  private stKey = ''; private raf = 0; private dirty = true;
+  private stKey = ''; private raf = 0; private dirty = true; private ro: ResizeObserver;
+  private stCache: { key: string; ox: number; oy: number } | undefined;
   onchange: () => void = () => {};
 
   constructor(cv: HTMLCanvasElement) {
     this.cv = cv; this.ctx = cv.getContext('2d')!;
     this.st = document.createElement('canvas'); this.sctx = this.st.getContext('2d')!;
-    new ResizeObserver(() => this.resize()).observe(cv.parentElement!);
+    this.ro = new ResizeObserver(() => this.resize()); this.ro.observe(cv.parentElement!);
     this.resize();
     const loop = (now: number) => { this.tick(now); this.raf = requestAnimationFrame(loop); };
     this.raf = requestAnimationFrame(loop);
   }
-  destroy() { cancelAnimationFrame(this.raf); }
+  destroy() { cancelAnimationFrame(this.raf); this.ro.disconnect(); }
 
   resize() {
     const r = this.cv.parentElement!.getBoundingClientRect();
@@ -67,14 +88,14 @@ export class MapView {
   invalidate() { this.stKey = ''; this.dirty = true; }
 
   zoomAt(px: number, py: number, f: number) {
-    const k = Math.max(0.02, Math.min(30, this.k * f)); f = k / this.k;
+    const k = clampZoom(this.k * f); f = k / this.k;
     this.k = k; this.dx = px - (px - this.dx) * f; this.dy = py - (py - this.dy) * f;
     this.redraw(); this.onchange();
   }
   pan(ddx: number, ddy: number) { this.dx += ddx; this.dy += ddy; this.redraw(); this.onchange(); }
   fit(x0: number, y0: number, x1: number, y1: number, pad = 0.9, offY = 0) {
     const k = Math.min(this.w / Math.max(1, x1 - x0), (this.h - offY) / Math.max(1, y1 - y0)) * pad;
-    this.k = Math.max(0.02, Math.min(30, k));
+    this.k = clampZoom(k);
     this.dx = this.w / 2 - this.k * (x0 + x1) / 2; this.dy = (this.h - offY) / 2 - this.k * (y0 + y1) / 2;
     this.invalidate(); this.onchange();
   }
@@ -96,8 +117,8 @@ export class MapView {
     }
     return best;
   }
-  /** Detail layer (foundations/walls from the save): Int16 arrays, see lightweight.detail_binary */
-  detail: { tiles: Int16Array; tmeta: Uint8Array; walls: Int16Array } | null = null;
+  /** Detail layer (foundations/walls from the save) */
+  detail: DetailLayer | null = null;
   /** Height filter in metres [from, to] — applies to objects with z (machines, generators, stations), null = off */
   zRange: [number, number] | null = null;
   visible(o: MapObj) {
@@ -110,11 +131,11 @@ export class MapView {
   private tick(now: number) {
     let moving = false;
     for (const o of this.objs) {
-      if (!o.t0) continue;
-      const p = Math.min(1, (now - o.t0) / 4800);
+      if (!o.glideStart) continue;
+      const p = Math.min(1, (now - o.glideStart) / GLIDE_MS);
       const e = p < .5 ? 2 * p * p : 1 - 2 * (1 - p) * (1 - p);
-      o.x = o.sx! + (o.tx! - o.sx!) * e; o.y = o.sy! + (o.ty! - o.sy!) * e;
-      if (p >= 1) o.t0 = 0;
+      o.x = o.fromX! + (o.toX! - o.fromX!) * e; o.y = o.fromY! + (o.toY! - o.fromY!) * e;
+      if (p >= 1) o.glideStart = 0;
       moving = true;
     }
     if (this.followKey) {
@@ -138,12 +159,12 @@ export class MapView {
     const W = this.w * 2, H = this.h * 2;
     // Offscreen surface = screen plus half a width/height margin on each side: world x → x·k + ox
     const ox = this.dx + this.w / 2, oy = this.dy + this.h / 2;
-    const cur = (this as any)._st as { key: string; ox: number; oy: number } | undefined;
+    const cur = this.stCache;
     if (cur && cur.key === key && this.stKey && Math.abs(ox - cur.ox) < this.w / 2.2 && Math.abs(oy - cur.oy) < this.h / 2.2) return cur;
     const d = this.dpr, c = this.sctx;
     this.st.width = Math.round(W * d); this.st.height = Math.round(H * d);
     c.setTransform(d, 0, 0, d, 0, 0);
-    c.fillStyle = '#16171a'; c.fillRect(0, 0, W, H);
+    c.fillStyle = C.mapBg; c.fillRect(0, 0, W, H);
     const k = this.k;
     const X = (x: number) => x * k + ox, Y = (y: number) => y * k + oy;
     if (this.img && this.layers.mapimg !== false) {
@@ -199,14 +220,14 @@ export class MapView {
     }
     // static objects (machines, nodes, generators) go into the offscreen surface too
     for (const o of this.objs) {
-      if (o.t0 !== undefined || o.kind === 'player' || o.kind === 'train' || o.kind === 'truck' || o.kind === 'station' || o.kind === 'pin') continue;
+      if (o.glideStart !== undefined || o.kind === 'player' || o.kind === 'train' || o.kind === 'truck' || o.kind === 'station' || o.kind === 'pin') continue;
       if (!this.visible(o)) continue;
       const x = X(o.x), y = Y(o.y);
       if (x < -20 || y < -20 || x > W + 20 || y > H + 20) continue;
       this.shape(c, o, x, y, this.rad(o));
     }
     const res = { key, ox, oy };
-    (this as any)._st = res; this.stKey = key;
+    this.stCache = res; this.stKey = key;
     return res;
   }
 
@@ -236,7 +257,7 @@ export class MapView {
       c.fill();
     }
     if (k >= 1.6) {                                        // tile seams only when zoomed in far
-      c.globalAlpha = .35; c.strokeStyle = '#16171a'; c.lineWidth = 1; c.beginPath();
+      c.globalAlpha = .35; c.strokeStyle = C.mapBg; c.lineWidth = 1; c.beginPath();
       for (const ids of byCol.values()) for (const i of ids) {
         const cx = X(T[3 * i]), cy = Y(T[3 * i + 1]); c.rect(cx - half, cy - half, 2 * half, 2 * half);
       }
@@ -256,7 +277,7 @@ export class MapView {
   shape(c: CanvasRenderingContext2D, o: MapObj, x: number, y: number, r: number) {
     c.globalAlpha = o.dim ? .3 : 1;
     if (this.flowFocus && !this.flowFocus.keys.has(o.key) && o.kind !== 'player') c.globalAlpha = .12;
-    c.fillStyle = o.color; c.strokeStyle = o.ring || '#0c0d0e'; c.lineWidth = o.ring ? 2 : 1.2;
+    c.fillStyle = o.color; c.strokeStyle = o.ring || C.ring; c.lineWidth = o.ring ? 2 : 1.2;
     c.beginPath();
     if (o.shape === 'circle') c.arc(x, y, r, 0, Math.PI * 2);
     else if (o.shape === 'square') { c.rect(x - r, y - r, 2 * r, 2 * r); }
@@ -271,13 +292,13 @@ export class MapView {
     const c = this.ctx, d = this.dpr;
     const s = this.drawStatic();
     c.setTransform(1, 0, 0, 1, 0, 0);
-    c.fillStyle = '#16171a'; c.fillRect(0, 0, this.cv.width, this.cv.height);
+    c.fillStyle = C.mapBg; c.fillRect(0, 0, this.cv.width, this.cv.height);
     c.drawImage(this.st, Math.round((this.dx - s.ox) * d), Math.round((this.dy - s.oy) * d));
     c.setTransform(d, 0, 0, d, 0, 0);
     for (const ov of this.overlays) if (this.layers[ov.layer] !== false) ov.draw(c, this);
     // connection lines to the selection
     if (this.links.length) {
-      c.setLineDash([7, 5]); c.lineWidth = 2; c.strokeStyle = '#f5f2ea'; c.globalAlpha = .85;
+      c.setLineDash([7, 5]); c.lineWidth = 2; c.strokeStyle = C.light; c.globalAlpha = .85;
       c.beginPath();
       for (const [a, b] of this.links) { c.moveTo(this.sx(a.x), this.sy(a.y)); c.lineTo(this.sx(b.x), this.sy(b.y)); }
       c.stroke(); c.setLineDash([]); c.globalAlpha = 1;
@@ -289,8 +310,8 @@ export class MapView {
       if (x < -30 || y < -30 || x > this.w + 30 || y > this.h + 30) continue;
       this.shape(c, o, x, y, o.r);
       if (o.fill != null && this.k > .35) {        // fill level as a small bar below stations
-        c.fillStyle = '#0c0d0e'; c.fillRect(x - 8, y + o.r + 3, 16, 3);
-        c.fillStyle = o.fill > .9 ? '#e5484d' : o.fill < .1 ? '#9a968e' : '#e8e6e1'; c.fillRect(x - 8, y + o.r + 3, 16 * o.fill, 3);
+        c.fillStyle = C.ring; c.fillRect(x - 8, y + o.r + 3, 16, 3);
+        c.fillStyle = o.fill > .9 ? C.bad : o.fill < .1 ? '#9a968e' : '#e8e6e1'; c.fillRect(x - 8, y + o.r + 3, 16 * o.fill, 3);
       }
     }
     if (this.flowFocus) for (const o of this.objs) {    // mark focused objects with a ring
@@ -302,7 +323,7 @@ export class MapView {
     for (const o of [this.hover, this.sel]) {
       if (!o || !this.visible(o)) continue;
       const x = this.sx(o.x), y = this.sy(o.y), r = this.rad(o) + 7;
-      c.strokeStyle = '#f59a23'; c.lineWidth = 2.5;
+      c.strokeStyle = C.accent; c.lineWidth = 2.5;
       c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.stroke();
     }
     if (this.labels) this.drawLabels(c);
@@ -310,7 +331,7 @@ export class MapView {
 
   private drawLabels(c: CanvasRenderingContext2D) {
     const placed: number[][] = [];
-    const cand = this.objs.filter(o => o.label && this.visible(o) && (!o.minK || this.k >= o.minK) && this.labelOk(o)
+    const cand = this.objs.filter(o => o.label && this.visible(o) && this.labelOk(o)
         && (!this.flowFocus || this.flowFocus.keys.has(o.key) || o.kind === 'player'))
       .sort((a, b) => (b === this.sel ? 1 : 0) - (a === this.sel ? 1 : 0) || b.prio - a.prio);
     c.font = '600 12px "Barlow Condensed", sans-serif'; c.textAlign = 'center'; c.textBaseline = 'bottom';
@@ -323,7 +344,7 @@ export class MapView {
       if (placed.some(q => b[0] < q[2] && q[0] < b[2] && b[1] < q[3] && q[1] < b[3])) continue;
       placed.push(b);
       c.strokeStyle = 'rgba(12,13,14,.92)'; c.lineWidth = 3.5; c.strokeText(o.label!, x, y);
-      c.fillStyle = o.kind === 'player' ? '#f59a23' : o.kind === 'machine' ? '#b8b4ab' : '#e8e6e1';
+      c.fillStyle = o.kind === 'player' ? C.accent : o.kind === 'machine' ? '#b8b4ab' : '#e8e6e1';
       c.fillText(o.label!, x, y);
       if (++n > 260) break;
     }

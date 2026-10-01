@@ -1,10 +1,11 @@
 <script lang="ts">
-  import { factory, nodes, status, sink } from '../lib/api';
+  import { factory, nodes, status, sink, series } from '../lib/api';
   import { toMap } from '../lib/router';
-  import { fmtNum, fmtMW, STATE_COLOR, machineColor, C, dur, ago } from '../lib/fmt';
+  import { fmtNum, fmtMW, STATE_COLOR, machineColor, C, dur, ago, purityRank, purityLabel } from '../lib/fmt';
+  import type { Node } from '../lib/types';
   import LineChart from '../lib/LineChart.svelte';
+  import Segmented from '../lib/Segmented.svelte';
   import { matches } from '../lib/fuzzy';
-  import { series } from '../lib/api';
   import { tn, both } from '../lib/names';
   import { t, tr, lx, locale } from '../lib/i18n';
 
@@ -27,7 +28,7 @@
       .filter(b => matches(q, both(b.item)))
       .filter(b => only === 'all' || (only === 'starved' ? b.net < -0.05 : b.net > 0.05));
     const k = sortK;
-    return rows.sort((a, b) => k === 'item' ? a.item.localeCompare(b.item, locale()) * sortDir : ((a as any)[k] - (b as any)[k]) * sortDir);
+    return rows.sort((a, b) => k === 'item' ? a.item.localeCompare(b.item, locale()) * sortDir : (a[k] - b[k]) * sortDir);
   });
   function sortBy(k: typeof sortK) { if (sortK === k) sortDir = -sortDir; else { sortK = k; sortDir = k === 'item' ? 1 : k === 'net' ? 1 : -1; } }
 
@@ -43,24 +44,29 @@
   });
   const facs = $derived((f?.factories || []).filter(x => matches(q, x.name, ...x.out.map(o => both(o.item)))));
   const nodeStats = $derived.by(() => {
-    const m = new Map<string, { item: string; pure: number; normal: number; impure: number; used: number; free: number; list: any[] }>();
+    const m = new Map<string, { item: string; pure: number; normal: number; impure: number; used: number; free: number; list: Node[] }>();
     for (const n of $nodes || []) {
       if (!n.item || n.kind === 'geyser') continue;
       const e = m.get(n.item) || { item: n.item, pure: 0, normal: 0, impure: 0, used: 0, free: 0, list: [] };
-      if (n.purity) (e as any)[n.purity]++;
+      if (n.purity === 'pure' || n.purity === 'normal' || n.purity === 'impure') e[n.purity]++;
       n.used ? e.used++ : e.free++; e.list.push(n); m.set(n.item, e);
     }
     return [...m.values()].filter(e => matches(q, both(e.item))).sort((a, b) => a.item.localeCompare(b.item, locale()));
   });
-  const PUR: Record<string, string> = { pure: 'pure', normal: 'normal', impure: 'impure' };
+  /** Free nodes of a resource, best purity first */
+  const freeNodes = (list: Node[]) => list.filter(n => !n.used).sort((a, b) => purityRank(b.purity) - purityRank(a.purity));
 
+  let histReq = 0;                       // only the latest request may set the chart (rows can be clicked quickly)
   async function toggle(item: string) {
     open = open === item ? null : item; hist = null;
-    if (open) {
+    if (!open) return;
+    const my = ++histReq;
+    try {
       const r = await series(['prod:' + item, 'cons:' + item], Date.now() / 1000 - 86400);
+      if (my !== histReq) return;
       hist = [{ key: 'p', label: tr('Production'), points: r.data['prod:' + item] || [] },
               { key: 'c', label: tr('Consumption'), points: r.data['cons:' + item] || [] }];
-    }
+    } catch { if (my === histReq) hist = []; }        // no history available: empty chart instead of "loading"
   }
   const machinesFor = (item: string) => (f?.machines || []).filter(m => m.out.some(o => o.item === item) || m.inp.some(i => i.item === item));
 </script>
@@ -87,16 +93,14 @@
 
   <div class="bar2">
     <div class="seg">
-      {#each [['balance', $t('Item balance')], ['stalled', $t('Missing input')], ['factories', $t('Factories')], ['nodes', $t('Resource nodes')]] as [k, l]}
-        <button class:on={view === k} onclick={() => (view = k as any)}>{l}</button>
-      {/each}
+      <Segmented bind:value={view} options={[['balance', $t('Item balance')], ['stalled', $t('Missing input')], ['factories', $t('Factories')], ['nodes', $t('Resource nodes')]]} />
     </div>
     <input class="field srch" type="search" bind:value={q} placeholder={$t('Filter by item or factory, e.g. copper')} />
   </div>
 
   {#if view === 'balance'}
     <div class="seg small">
-      {#each [['all', $t('All items')], ['starved', $t('Shortages only')], ['surplus', $t('Surplus only')]] as [k, l]}<button class:on={only === k} onclick={() => (only = k as any)}>{l}</button>{/each}
+      <Segmented bind:value={only} options={[['all', $t('All items')], ['starved', $t('Shortages only')], ['surplus', $t('Surplus only')]]} />
     </div>
     <div class="panel card tbl">
       <table class="t">
@@ -173,7 +177,7 @@
       {#each facs as x (x.key)}
         <button class="panel fc" onclick={() => toMap('factory:' + x.key, x.center[0], x.center[1])}>
           <h3>{$lx(x.name)}</h3>
-          <div class="stbar">{#each ['running', 'partial'] as s}{#if x.states[s]}<i style="flex:{x.states[s]};background:{STATE_COLOR[s]}" title="{x.states[s]} {$t(s)}"></i>{/if}{/each}{#if x.full}<i style="flex:{x.full};background:#8a857c" title={$t('{n} waiting (output full)', { n: x.full })}></i>{/if}{#if x.starved}<i style="flex:{x.starved};background:{C.bad}" title={$t('{n} missing input', { n: x.starved })}></i>{/if}</div>
+          <div class="stbar">{#each ['running', 'partial'] as s}{#if x.states[s]}<i style="flex:{x.states[s]};background:{STATE_COLOR[s]}" title="{x.states[s]} {$t(s)}"></i>{/if}{/each}{#if x.full}<i style="flex:{x.full};background:{C.full}" title={$t('{n} waiting (output full)', { n: x.full })}></i>{/if}{#if x.starved}<i style="flex:{x.starved};background:{C.bad}" title={$t('{n} missing input', { n: x.starved })}></i>{/if}</div>
           <div class="muted small">{$t('{n} machines', { n: x.n })} · {fmtMW(x.power)}{x.starved ? ' · ' + $t('{n} with missing input', { n: x.starved }) : ''}</div>
           <div class="io">{#each x.out.slice(0, 3) as o}<span>{$tn(o.item)} <b class="num">{fmtNum(o.rate)}</b></span>{/each}</div>
         </button>
@@ -191,8 +195,8 @@
               <td class="n">{e.used}</td><td class="n" style="color:{e.free ? C.ok : 'inherit'}">{e.free}</td></tr>
             {#if open === e.item}
               <tr class="exp"><td colspan="6"><div class="nodes">
-                {#each e.list.filter(n => !n.used).sort((a, b) => (b.purity === 'pure' ? 2 : b.purity === 'normal' ? 1 : 0) - (a.purity === 'pure' ? 2 : a.purity === 'normal' ? 1 : 0)) as n}
-                  <button class="lk" onclick={() => toMap('node:' + n.id, n.pos[0], n.pos[1])}>{$t('free')} · {PUR[n.purity] ? $t(PUR[n.purity]) : '?'} · {n.pos[0]} / {n.pos[1]} m</button>
+                {#each freeNodes(e.list) as n}
+                  <button class="lk" onclick={() => toMap('node:' + n.id, n.pos[0], n.pos[1])}>{$t('free')} · {purityLabel(n.purity)} · {n.pos[0]} / {n.pos[1]} m</button>
                 {/each}
               </div></td></tr>
             {/if}
@@ -208,10 +212,10 @@
   .bar2 { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 12px; }
   .srch { max-width: 260px; }
   .seg { display: inline-flex; flex-wrap: wrap; }
-  .seg button { background: var(--plate); border: 1px solid var(--seam); padding: 6px 12px; font-family: var(--cond); font-weight: 600; font-size: 15px; color: var(--text2); margin-right: -1px; }
-  .seg button.on { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); position: relative; }
+  .seg :global(button) { background: var(--plate); border: 1px solid var(--seam); padding: 6px 12px; font-family: var(--cond); font-weight: 600; font-size: 15px; color: var(--text2); margin-right: -1px; }
+  .seg :global(button.on) { color: #1b1c1e; background: var(--ficsit); border-color: var(--ficsit); position: relative; }
   .seg.small { margin-bottom: 10px; }
-  .seg.small button { font-size: 13px; padding: 3px 10px; font-family: var(--body); font-weight: 500; }
+  .seg.small :global(button) { font-size: 13px; padding: 3px 10px; font-family: var(--body); font-weight: 500; }
   .tbl { padding: 4px 8px 8px; overflow-x: auto; }
   .small { font-size: 12px; }
   td .bar { width: 120px; margin-top: 7px; }

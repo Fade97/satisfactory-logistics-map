@@ -6,9 +6,9 @@ blueprint header version 2, save version 60 (new UE 5.4+ property tag format —
 
 | File | Purpose |
 |---|---|
-| `sbp.py` | Parser/writer for `.sbp`. `python3 sbp.py <folder>` = round-trip test, `python3 sbp.py dump <file.sbp> [full]` = show contents. |
+| `sbp.py` | Parser/writer for `.sbp`. `python3 sbp.py <folder>` = round-trip test (also `tests/test_sbp.py`), `python3 sbp.py dump <file.sbp> [full]` = show contents. |
 | `sav.py` | Reader for `.sav` (read-only): `load_index(path)` returns all objects as `name -> (header, raw data)`, `show(idx, name)` prints properties. |
-| `gen.py` | Generator for the railway set (below). Geometry is global in cm and is cut into 40 m boxes automatically. Needs a blueprint "Asphalt + Schiene - Gerade" from your own game as a template (`SRC` / `TEMPLATE` at the top of the file). |
+| `tools/railset_gen.py` | Generator for the railway set (below). Geometry is global in cm and is cut into 40 m boxes automatically. Needs a blueprint "Asphalt + Schiene - Gerade" from your own game as a template (folder via `BP_SRC`, name `TEMPLATE` at the top of the file; output folder `BP_OUT`, default `blueprints/rail-set`). |
 | `bpgen.py` | Blueprint from the production planner (experimental): templates in `gamedata/templates/`, sets recipe and clock speed, removes surplus machines including their power cables, checks the round trip. |
 | `blueprints/rail-set/` | Finished blueprints of the railway set plus overview drawings (`_*.png`). |
 | `blueprints/from-server/` | Versions adjusted in the game (design reference). |
@@ -18,7 +18,7 @@ Copy the files into the session's blueprint folder: `…/FactoryGame/Saved/SaveG
 (dedicated server: in the server directory, with the same file owner as the other game files). The server only reads the folder when
 loading the session — reload the save afterwards. New blueprints appear under "Undefined".
 
-## Railway set (`gen.py` → `blueprints/rail-set/`)
+## Railway set (`tools/railset_gen.py` → `blueprints/rail-set/`)
 Corridor 24 m wide, symmetrical, everything on asphalt foundations 8x1 (top edge z = 100):
 
 | Element | Position (box coordinates, cm) |
